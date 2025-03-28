@@ -137,8 +137,50 @@ def register_account(platform, username):
         save_sent_posts(sent_posts)
 
 
+def scan_and_register_accounts():
+    """Scan media directories to discover and register existing accounts"""
+    if not os.path.exists(MEDIA_DIR):
+        return
+
+    # Dictionary to hold found accounts
+    found_accounts = {"twitter": set(), "instagram": set(), "bilibili": set()}
+
+    # Scan directory structure for account folders
+    for item in os.listdir(MEDIA_DIR):
+        path = os.path.join(MEDIA_DIR, item)
+        if os.path.isdir(path):
+            parts = item.split("_", 1)  # Split at first underscore
+            if len(parts) == 2:
+                platform, username = parts
+                if platform == "twitter":
+                    found_accounts["twitter"].add(username)
+                elif platform == "instagram":
+                    found_accounts["instagram"].add(username)
+                elif platform == "instagram_stories":
+                    # Extract username from instagram_stories_username
+                    found_accounts["instagram"].add(username)
+                elif platform == "bilibili":
+                    found_accounts["bilibili"].add(username)
+
+    # Register all found accounts
+    sent_posts = load_sent_posts()
+    for platform, accounts in found_accounts.items():
+        for account in accounts:
+            if account not in sent_posts["accounts"].get(platform, []):
+                if platform not in sent_posts["accounts"]:
+                    sent_posts["accounts"][platform] = []
+                sent_posts["accounts"][platform].append(account)
+                print(f"Registered existing {platform} account: {account}")
+
+    save_sent_posts(sent_posts)
+    return found_accounts
+
+
 def get_accounts_by_platform(platform):
     """Get all accounts for a given platform"""
+    # Scan for existing accounts first
+    scan_and_register_accounts()
+
     sent_posts = load_sent_posts()
     platform_key = platform
     if platform == "x":

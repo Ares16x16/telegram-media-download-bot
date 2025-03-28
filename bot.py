@@ -25,6 +25,13 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 user_states = {}
 
+# Constants for media directory structure
+MEDIA_DIR = utils.MEDIA_DIR
+TWITTER_MEDIA_DIR = os.path.join(MEDIA_DIR, "twitter")
+INSTAGRAM_POSTS_DIR = os.path.join(MEDIA_DIR, "instagram", "posts")
+INSTAGRAM_STORIES_DIR = os.path.join(MEDIA_DIR, "instagram", "stories")
+BILIBILI_MEDIA_DIR = os.path.join(MEDIA_DIR, "bilibili")
+
 
 @bot.message_handler(commands=["pick"])
 def handle_pick(message):
@@ -413,11 +420,100 @@ def history_select_platform_callback(call):
     # Get accounts for this platform
     accounts = utils.get_accounts_by_platform(platform)
 
+    # Fallback: If no accounts found, try scanning directories directly
+    if not accounts:
+        try:
+            # Use the constants defined at the top of the file
+            platform_dir_map = {
+                "twitter": TWITTER_MEDIA_DIR,
+                "instagram_posts": INSTAGRAM_POSTS_DIR,
+                "instagram_stories": INSTAGRAM_STORIES_DIR,
+                "bilibili": BILIBILI_MEDIA_DIR,
+            }
+
+            if platform in platform_dir_map:
+                media_dir = platform_dir_map[platform]
+                print(f"Looking for {platform} accounts in directory: {media_dir}")
+
+                if os.path.exists(media_dir):
+                    # List subdirectories (account names)
+                    accounts = [
+                        d
+                        for d in os.listdir(media_dir)
+                        if os.path.isdir(os.path.join(media_dir, d))
+                    ]
+
+                    # Special handling for Instagram stories which might follow different patterns
+                    if platform == "instagram_stories" and not accounts:
+                        # Try looking directly in the instagram directory for stories
+                        stories_pattern_dirs = [
+                            os.path.join(MEDIA_DIR, "instagram", "stories"),
+                            os.path.join(MEDIA_DIR, "instagram"),
+                        ]
+
+                        for dir_path in stories_pattern_dirs:
+                            if os.path.exists(dir_path):
+                                # Look for "stories_" prefixed dirs or any dirs in stories/
+                                for d in os.listdir(dir_path):
+                                    full_path = os.path.join(dir_path, d)
+                                    if os.path.isdir(full_path) and (
+                                        d.startswith("stories_")
+                                        or "stories" in dir_path
+                                    ):
+                                        accounts.append(d.replace("stories_", ""))
+
+                        if accounts:
+                            # Remove duplicates but preserve order
+                            seen = set()
+                            accounts = [
+                                x for x in accounts if not (x in seen or seen.add(x))
+                            ]
+                            print(
+                                f"Found story accounts via pattern matching: {accounts}"
+                            )
+
+                    # Register hardcoded accounts if still no accounts found
+                    if not accounts:
+                        if platform == "instagram_stories":
+                            accounts = ["nagi.i_official"]
+                            print(
+                                f"Using hardcoded Instagram story account: {accounts}"
+                            )
+                        elif platform == "twitter":
+                            accounts = [X_USERNAME]
+                            print(f"Using hardcoded Twitter account: {accounts}")
+                        elif platform == "instagram_posts":
+                            accounts = [INSTAGRAM_USERNAME]
+                            print(f"Using hardcoded Instagram account: {accounts}")
+                    else:
+                        print(
+                            f"Found accounts via directory scanning for {platform}: {accounts}"
+                        )
+        except Exception as e:
+            print(f"Error in directory scanning fallback: {e}")
+            import traceback
+
+            traceback.print_exc()
+
     if not accounts:
         bot.edit_message_text(
-            f"No accounts found for {platform.replace('_', ' ')}. Fetch some content first!",
+            f"No accounts found for {platform.replace('_', ' ')}. Fetch some content first!\n"
+            f"Check if media files are in expected locations:\n"
+            f"- Instagram posts: {INSTAGRAM_POSTS_DIR}\n"
+            f"- Instagram stories: {INSTAGRAM_STORIES_DIR}\n"
+            f"- Twitter: {TWITTER_MEDIA_DIR}",
             chat_id=chat_id,
             message_id=call.message.message_id,
+        )
+        # Add back button
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(
+                "Back", callback_data="history_back_to_platforms"
+            )
+        )
+        bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup
         )
         return
 
@@ -701,13 +797,89 @@ def view_post_callback(call):
 
         media_paths = utils.get_post_media_files(base_platform, post_id)
 
-    # If still no media, try scanning directories
+    # If still no media, try scanning directories with our new structure
     if not media_paths:
         print(
             f"No media mapping found for {platform_key}_{post_id}, trying to scan directories"
         )
-        # This will use the directory scanning fallback in get_post_media_files
-        media_paths = utils.get_post_media_files(platform, post_id)
+        try:
+            # Try to locate media based on expected directory structure
+            if platform == "twitter":
+                account_dir = os.path.join(TWITTER_MEDIA_DIR, account)
+                post_dir = os.path.join(account_dir, post_id)
+                if os.path.exists(post_dir):
+                    media_paths = [
+                        os.path.join(post_dir, f)
+                        for f in os.listdir(post_dir)
+                        if os.path.isfile(os.path.join(post_dir, f))
+                        and (
+                            f.endswith(".jpg")
+                            or f.endswith(".jpeg")
+                            or f.endswith(".png")
+                            or f.endswith(".mp4")
+                        )
+                    ]
+
+            elif platform == "instagram_posts":
+                account_dir = os.path.join(INSTAGRAM_POSTS_DIR, account)
+                post_dir = os.path.join(account_dir, post_id)
+                if os.path.exists(post_dir):
+                    media_paths = [
+                        os.path.join(post_dir, f)
+                        for f in os.listdir(post_dir)
+                        if os.path.isfile(os.path.join(post_dir, f))
+                        and (
+                            f.endswith(".jpg")
+                            or f.endswith(".jpeg")
+                            or f.endswith(".png")
+                            or f.endswith(".mp4")
+                        )
+                    ]
+
+            elif platform == "instagram_stories":
+                # Try multiple patterns for stories
+                possible_paths = [
+                    os.path.join(INSTAGRAM_STORIES_DIR, account, post_id),
+                    os.path.join(INSTAGRAM_STORIES_DIR, f"stories_{account}", post_id),
+                    os.path.join(MEDIA_DIR, "instagram", f"stories_{account}", post_id),
+                ]
+
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        media_paths = [
+                            os.path.join(path, f)
+                            for f in os.listdir(path)
+                            if os.path.isfile(os.path.join(path, f))
+                            and (
+                                f.endswith(".jpg")
+                                or f.endswith(".jpeg")
+                                or f.endswith(".png")
+                                or f.endswith(".mp4")
+                            )
+                        ]
+                        if media_paths:
+                            break
+
+            elif platform == "bilibili":
+                account_dir = os.path.join(BILIBILI_MEDIA_DIR, account)
+                post_dir = os.path.join(account_dir, post_id)
+                if os.path.exists(post_dir):
+                    media_paths = [
+                        os.path.join(post_dir, f)
+                        for f in os.listdir(post_dir)
+                        if os.path.isfile(os.path.join(post_dir, f))
+                        and f.endswith(".mp4")
+                    ]
+
+            print(
+                f"Directory scan found {len(media_paths)} files for {platform}/{account}/{post_id}"
+            )
+
+        except Exception as e:
+            print(f"Error in directory scanning fallback: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     if not media_paths:
         bot.answer_callback_query(

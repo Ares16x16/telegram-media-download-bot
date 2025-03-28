@@ -207,8 +207,10 @@ def fetch_x_posts(username):
         # Register the account
         utils.register_account("twitter", clean_username)
 
-        # Create user-specific directory
-        user_media_dir = utils.get_user_media_dir("twitter", clean_username)
+        # Create user directory, properly structured
+        base_twitter_dir = os.path.join(MEDIA_DIR, "twitter")
+        user_media_dir = os.path.join(base_twitter_dir, clean_username)
+        os.makedirs(user_media_dir, exist_ok=True)
 
         headers = {
             "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}",
@@ -277,6 +279,9 @@ def fetch_x_posts(username):
                 media_paths = []
                 media_types = []
 
+                tweet_dir = os.path.join(user_media_dir, tweet_id)
+                os.makedirs(tweet_dir, exist_ok=True)
+
                 if "attachments" in tweet and "media_keys" in tweet["attachments"]:
                     for media_key in tweet["attachments"]["media_keys"]:
                         media = media_dict.get(media_key)
@@ -305,9 +310,8 @@ def fetch_x_posts(username):
                                 media_filename = utils.generate_media_filename(
                                     "x", tweet_id, ext
                                 )
-                                media_path = os.path.join(
-                                    user_media_dir, media_filename
-                                )
+                                # Save in tweet-specific directory
+                                media_path = os.path.join(tweet_dir, media_filename)
 
                                 if not os.path.exists(media_path):
                                     if download_media(murl, media_path):
@@ -484,7 +488,10 @@ def fetch_instagram_posts(username):
         # Register the account
         utils.register_account("instagram", username)
 
-        user_media_dir = utils.get_user_media_dir("instagram", username)
+        # Create user-specific directory in the correct structure
+        base_posts_dir = os.path.join(MEDIA_DIR, "instagram", "posts")
+        user_media_dir = os.path.join(base_posts_dir, username)
+        os.makedirs(user_media_dir, exist_ok=True)
 
         try:
             print(f"Attempting to fetch profile for {username}")
@@ -510,11 +517,16 @@ def fetch_instagram_posts(username):
                 is_video = post.is_video
                 media_url = post.video_url if is_video else post.url
 
+                # Create post-specific directory
+                post_dir = os.path.join(user_media_dir, str(post.shortcode))
+                os.makedirs(post_dir, exist_ok=True)
+
                 ext = ".mp4" if is_video else ".jpg"
                 media_filename = utils.generate_media_filename(
                     "instagram", post.shortcode, ext
                 )
-                media_path = os.path.join(user_media_dir, media_filename)
+                # Save in post-specific directory
+                media_path = os.path.join(post_dir, media_filename)
 
                 if not os.path.exists(media_path):
                     success = download_media(media_url, media_path)
@@ -561,8 +573,10 @@ def fetch_instagram_stories(username):
         # Register the account
         utils.register_account("instagram", username)
 
-        # Create user-specific directory
-        user_media_dir = utils.get_user_media_dir("instagram_stories", username)
+        # Create user-specific directory in the correct structure
+        base_stories_dir = os.path.join(MEDIA_DIR, "instagram", "stories")
+        user_media_dir = os.path.join(base_stories_dir, username)
+        os.makedirs(user_media_dir, exist_ok=True)
 
         try:
             profile = instaloader.Profile.from_username(L.context, username)
@@ -578,11 +592,16 @@ def fetch_instagram_stories(username):
                         is_video = item.is_video
                         story_url = item.video_url if is_video else item.url
 
+                        # Create story-specific directory
+                        story_dir = os.path.join(user_media_dir, str(item.mediaid))
+                        os.makedirs(story_dir, exist_ok=True)
+
                         ext = ".mp4" if is_video else ".jpg"
                         media_filename = utils.generate_media_filename(
                             "instagram_story", item.mediaid, ext
                         )
-                        media_path = os.path.join(user_media_dir, media_filename)
+                        # Save in story-specific directory
+                        media_path = os.path.join(story_dir, media_filename)
 
                         if not os.path.exists(media_path):
                             success = download_media(story_url, media_path)
