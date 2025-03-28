@@ -3,6 +3,8 @@ import asyncio
 import telebot
 import telebot.apihelper
 from telebot import types
+import json
+from collections import defaultdict
 
 telebot.apihelper.CONNECT_TIMEOUT = 60
 telebot.apihelper.READ_TIMEOUT = 600
@@ -128,13 +130,13 @@ def fetch_instagram_content(message, username):
         for story in insta_stories:
             if story.get("media_paths"):
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!",
+                    f"{story['content']}",
                     media_paths=story.get("media_paths"),
                     media_types=story.get("media_types"),
                 )
             else:
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!",
+                    f"{story['content']}",
                     media_url=story.get("url"),
                 )
 
@@ -218,13 +220,13 @@ def handle_fetch(message):
             for story in insta_stories:
                 if story.get("media_paths"):
                     utils.send_to_telegram(
-                        f"{story['content']}\n\nView it soon!",
+                        f"{story['content']}",
                         media_paths=story.get("media_paths"),
                         media_types=story.get("media_types"),
                     )
                 else:
                     utils.send_to_telegram(
-                        f"{story['content']}\n\nView it soon!",
+                        f"{story['content']}",
                         media_url=story.get("url"),
                     )
 
@@ -373,6 +375,435 @@ def handle_echo(message):
         bot.reply_to(message, f"Error in echo function: {e}")
 
 
+@bot.message_handler(commands=["history"])
+def handle_history(message):
+    """Command to browse previously fetched posts"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+
+    # Platform buttons
+    item_x = types.InlineKeyboardButton(
+        "X (Twitter)", callback_data="history_select_platform_twitter"
+    )
+    item_ig = types.InlineKeyboardButton(
+        "Instagram Posts", callback_data="history_select_platform_instagram_posts"
+    )
+    item_ig_stories = types.InlineKeyboardButton(
+        "Instagram Stories", callback_data="history_select_platform_instagram_stories"
+    )
+    item_bili = types.InlineKeyboardButton(
+        "Bilibili Videos", callback_data="history_select_platform_bilibili"
+    )
+
+    markup.add(item_x, item_ig)
+    markup.add(item_ig_stories, item_bili)
+
+    bot.send_message(
+        message.chat.id, "Browse history - select a platform:", reply_markup=markup
+    )
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data.startswith("history_select_platform_")
+)
+def history_select_platform_callback(call):
+    platform = call.data.replace("history_select_platform_", "")
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+
+    # Get accounts for this platform
+    accounts = utils.get_accounts_by_platform(platform)
+
+    if not accounts:
+        bot.edit_message_text(
+            f"No accounts found for {platform.replace('_', ' ')}. Fetch some content first!",
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+        )
+        return
+
+    # Store the selected platform in user state
+    user_states[user_id] = {"platform": platform}
+
+    # Create account selection buttons
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for account in accounts:
+        markup.add(
+            types.InlineKeyboardButton(
+                f"@{account}",
+                callback_data=f"history_select_account_{platform}_{account}",
+            )
+        )
+
+    # Add back button
+    markup.add(
+        types.InlineKeyboardButton("Back", callback_data="history_back_to_platforms")
+    )
+
+    bot.edit_message_text(
+        f"Select an account for {platform.replace('_', ' ')}:",
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        reply_markup=markup,
+    )
+
+    bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data.startswith("history_select_account_")
+)
+def history_select_account_callback(call):
+    # Parse the platform and account from the callback data
+    parts = call.data.split("_", 4)
+    if len(parts) >= 5:
+        platform = parts[3]
+        account = parts[4]
+    else:
+        bot.answer_callback_query(call.id, "Invalid selection")
+        return
+
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+
+    # Load sent posts data
+    sent_posts = utils.load_sent_posts()
+
+    if platform == "twitter":
+        posts = [
+            p
+            for p in sent_posts.get("x_posts", [])
+            if f"twitter_{account}_{p}" in sent_posts.get("media_mapping", {})
+        ]
+        platform_key = f"twitter_{account}"
+    elif platform == "instagram_posts":
+        posts = [
+            p
+            for p in sent_posts.get("instagram_posts", [])
+            if f"instagram_post_{account}_{p}" in sent_posts.get("media_mapping", {})
+        ]
+        platform_key = f"instagram_post_{account}"
+    elif platform == "instagram_stories":
+        posts = [
+            p
+            for p in sent_posts.get("instagram_stories", [])
+            if f"instagram_story_{account}_{p}" in sent_posts.get("media_mapping", {})
+        ]
+        platform_key = f"instagram_story_{account}"
+    elif platform == "bilibili":
+        # Get videos from sent_videos.json
+        sent_videos = utils.load_sent_videos()
+        posts = [
+            p
+            for p in sent_videos.get("videos", [])
+            if f"bilibili_{account}_{p}" in sent_posts.get("media_mapping", {})
+        ]
+        platform_key = f"bilibili_{account}"
+    else:
+        bot.answer_callback_query(call.id, "Unknown platform")
+        return
+
+    if not posts:
+        # If we didn't find posts with the detailed mapping, fall back to all posts for this account
+        if platform == "twitter":
+            posts = sent_posts.get("x_posts", [])
+        elif platform == "instagram_posts":
+            posts = sent_posts.get("instagram_posts", [])
+        elif platform == "instagram_stories":
+            posts = sent_posts.get("instagram_stories", [])
+        elif platform == "bilibili":
+            sent_videos = utils.load_sent_videos()
+            posts = sent_videos.get("videos", [])
+
+    if not posts:
+        bot.edit_message_text(
+            f"No posts found for {account} on {platform.replace('_', ' ')}.",
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+        )
+        # Add back button
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(
+                "Back", callback_data=f"history_select_platform_{platform}"
+            )
+        )
+        bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup
+        )
+        return
+
+    # Store user state for pagination
+    user_states[user_id] = {
+        "platform": platform,
+        "platform_key": platform_key,
+        "account": account,
+        "posts": posts,
+        "current_page": 0,
+        "posts_per_page": 5,
+    }
+
+    # Show the first page
+    show_posts_page(user_id, chat_id, call.message.message_id)
+    bot.answer_callback_query(call.id)
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data
+    in [
+        "history_prev_page",
+        "history_next_page",
+        "history_back_to_platforms",
+        "history_back_to_accounts",
+    ]
+)
+def history_navigation_callback(call):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+
+    if user_id not in user_states:
+        bot.answer_callback_query(call.id, "Session expired. Please start over.")
+        return
+
+    if call.data == "history_prev_page":
+        user_states[user_id]["current_page"] -= 1
+        show_posts_page(user_id, chat_id, call.message.message_id)
+
+    elif call.data == "history_next_page":
+        user_states[user_id]["current_page"] += 1
+        show_posts_page(user_id, chat_id, call.message.message_id)
+
+    elif call.data == "history_back_to_platforms":
+        # Go back to platform selection
+        handle_history(call.message)
+
+    elif call.data == "history_back_to_accounts":
+        # Go back to account selection
+        platform = user_states[user_id].get("platform")
+        if platform:
+            history_select_platform_callback(
+                types.CallbackQuery(
+                    id=call.id,
+                    from_user=call.from_user,
+                    message=call.message,
+                    data=f"history_select_platform_{platform}",
+                )
+            )
+
+    bot.answer_callback_query(call.id)
+
+
+def show_posts_page(user_id, chat_id, message_id):
+    """Display a page of posts with pagination controls"""
+    state = user_states.get(user_id, {})
+    platform = state.get("platform", "")
+    account = state.get("account", "")
+    posts = state.get("posts", [])
+    current_page = state.get("current_page", 0)
+    posts_per_page = state.get("posts_per_page", 5)
+
+    start_idx = current_page * posts_per_page
+    end_idx = min(start_idx + posts_per_page, len(posts))
+
+    page_posts = posts[start_idx:end_idx]
+
+    markup = types.InlineKeyboardMarkup(row_width=3)
+
+    # Add buttons for each post on this page
+    post_buttons = []
+    for i, post_id in enumerate(page_posts):
+        post_idx = start_idx + i
+        btn_text = f"Post {post_idx + 1}"
+        post_buttons.append(
+            types.InlineKeyboardButton(
+                btn_text, callback_data=f"view_post_{platform}_{account}_{post_id}"
+            )
+        )
+
+    # Add post buttons in rows of 2
+    for i in range(0, len(post_buttons), 2):
+        if i + 1 < len(post_buttons):
+            markup.add(post_buttons[i], post_buttons[i + 1])
+        else:
+            markup.add(post_buttons[i])
+
+    # Navigation buttons
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(
+            types.InlineKeyboardButton("⬅️ Previous", callback_data="history_prev_page")
+        )
+
+    nav_buttons.append(
+        types.InlineKeyboardButton(
+            "Back to Accounts", callback_data="history_back_to_accounts"
+        )
+    )
+
+    if end_idx < len(posts):
+        nav_buttons.append(
+            types.InlineKeyboardButton("Next ➡️", callback_data="history_next_page")
+        )
+
+    markup.row(*nav_buttons)
+    markup.add(
+        types.InlineKeyboardButton(
+            "Back to Platforms", callback_data="history_back_to_platforms"
+        )
+    )
+
+    # Create message text
+    platform_name = platform.replace("_", " ").capitalize()
+    message_text = (
+        f"{platform_name} History for @{account}\n"
+        f"Page {current_page + 1}/{(len(posts) + posts_per_page - 1) // posts_per_page}\n"
+        f"Showing posts {start_idx + 1}-{end_idx} of {len(posts)}"
+    )
+
+    bot.edit_message_text(
+        message_text, chat_id=chat_id, message_id=message_id, reply_markup=markup
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("view_post_"))
+def view_post_callback(call):
+    parts = call.data.split("_")
+    if len(parts) < 5:  # Format: view_post_platform_account_postid
+        bot.answer_callback_query(call.id, "Invalid post data")
+        return
+
+    platform = parts[2]
+    account = parts[3]
+    post_id = "_".join(parts[4:])  # In case the ID contains underscores
+
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+
+    if user_id not in user_states:
+        bot.answer_callback_query(call.id, "Session expired. Please start over.")
+        return
+
+    platform_key = f"{user_states[user_id].get('platform_key', '')}_{post_id}"
+
+    # First try using the platform_key
+    media_paths = utils.get_post_media_files(platform_key, post_id)
+
+    # If no media found, try with just basic platform type
+    if not media_paths:
+        base_platform = ""
+        if platform == "twitter":
+            base_platform = "twitter"
+        elif platform == "instagram_posts":
+            base_platform = "instagram_post"
+        elif platform == "instagram_stories":
+            base_platform = "instagram_story"
+        elif platform == "bilibili":
+            base_platform = "bilibili"
+
+        media_paths = utils.get_post_media_files(base_platform, post_id)
+
+    # If still no media, try scanning directories
+    if not media_paths:
+        print(
+            f"No media mapping found for {platform_key}_{post_id}, trying to scan directories"
+        )
+        # This will use the directory scanning fallback in get_post_media_files
+        media_paths = utils.get_post_media_files(platform, post_id)
+
+    if not media_paths:
+        bot.answer_callback_query(
+            call.id,
+            "No media found for this post. Files may have been moved or deleted.",
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(
+                "Back to posts",
+                callback_data=f"history_select_account_{platform}_{account}",
+            )
+        )
+
+        bot.send_message(
+            chat_id,
+            f"Could not find media files for this post.\n\nPlatform: {platform}\nAccount: {account}\nPost ID: {post_id}",
+            reply_markup=markup,
+        )
+        return
+
+    # Send the post with its media
+    if platform == "twitter":
+        url = f"https://twitter.com/{account}/status/{post_id}"
+        caption = f"X Post from @{account}:\n{url}"
+    elif platform == "instagram_posts":
+        url = f"https://www.instagram.com/p/{post_id}/"
+        caption = f"Instagram Post from @{account}:\n{url}"
+    elif platform == "instagram_stories":
+        caption = f"Instagram Story from @{account}\nStory ID: {post_id}"
+    elif platform == "bilibili":
+        url = f"https://www.bilibili.com/video/{post_id}"
+        caption = f"Bilibili Video from {account}:\n{url}"
+    else:
+        caption = f"Post ID: {post_id} from {account}"
+
+    # Send media with caption
+    media_types = []
+    for path in media_paths:
+        if path.endswith(".mp4"):
+            media_types.append("video")
+        else:
+            media_types.append("photo")
+
+    # Create navigation buttons for this view
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton(
+            "Back to list",
+            callback_data=f"history_select_account_history_{platform}_{account}",
+        )
+    )
+
+    # Attempt to send the media
+    try:
+        if len(media_paths) == 1:
+            media_path = media_paths[0]
+            mtype = media_types[0]
+            if mtype == "video":
+                with open(media_path, "rb") as vid:
+                    bot.send_video(chat_id, vid, caption=caption, reply_markup=markup)
+            else:
+                with open(media_path, "rb") as img:
+                    bot.send_photo(chat_id, img, caption=caption, reply_markup=markup)
+        else:
+            # Send media group
+            media = []
+            for i, path in enumerate(media_paths):
+                mtype = media_types[i]
+                if mtype == "video":
+                    with open(path, "rb") as vid:
+                        media.append(
+                            telebot.types.InputMediaVideo(
+                                vid, caption=caption if i == 0 else None
+                            )
+                        )
+                else:
+                    with open(path, "rb") as img:
+                        media.append(
+                            telebot.types.InputMediaPhoto(
+                                img, caption=caption if i == 0 else None
+                            )
+                        )
+
+            # Send media group first, then send a message with the navigation buttons
+            bot.send_media_group(chat_id, media)
+            bot.send_message(
+                chat_id, "Use the button below to navigate:", reply_markup=markup
+            )
+    except Exception as e:
+        bot.send_message(chat_id, f"Error sending media: {e}\n\n{caption}")
+        bot.send_message(chat_id, "Navigation:", reply_markup=markup)
+
+    bot.answer_callback_query(call.id)
+
+
 @bot.message_handler(commands=["help"])
 def handle_help(message):
     help_text = """
@@ -383,6 +814,7 @@ Available commands:
 /fetch_nagi_x - Fetch only X/Twitter posts for Nagi
 /fetch_nagi_ig - Fetch only Instagram posts for Nagi
 /bili <url> - Download and send Bilibili video
+/history - Browse previously fetched posts and media
 /echo <message> - Echo back your message
 /help - Show this help message
 """

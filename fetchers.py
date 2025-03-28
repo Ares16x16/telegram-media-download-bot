@@ -6,6 +6,7 @@ import json
 import instaloader
 import traceback
 import re
+import uuid
 from dotenv import load_dotenv
 
 import utils
@@ -119,6 +120,9 @@ if not os.path.exists(MEDIA_DIR):
 
 
 def download_media(url, path, retries=3, timeout=10):
+    # Create parent directory if needed
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
     for attempt in range(retries):
         try:
             headers = {
@@ -136,7 +140,9 @@ def download_media(url, path, retries=3, timeout=10):
                     print(f"Permission denied to write to {path}")
                     return False
                 except FileNotFoundError:
-                    print(f"Directory not found for {path}. Ensure {MEDIA_DIR} exists.")
+                    print(
+                        f"Directory not found for {path}. Ensure {os.path.dirname(path)} exists."
+                    )
                     return False
                 except OSError as e:
                     print(f"OS error writing to {path}: {e}")
@@ -197,6 +203,12 @@ def fetch_x_posts(username):
         new_posts = []
         clean_username = username.replace("@", "")
         print(f"Fetching X posts for: {clean_username}")
+
+        # Register the account
+        utils.register_account("twitter", clean_username)
+
+        # Create user-specific directory
+        user_media_dir = utils.get_user_media_dir("twitter", clean_username)
 
         headers = {
             "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}",
@@ -290,8 +302,11 @@ def fetch_x_posts(username):
 
                             if murl:
                                 ext = ".jpg" if mtype == "photo" else ".mp4"
+                                media_filename = utils.generate_media_filename(
+                                    "x", tweet_id, ext
+                                )
                                 media_path = os.path.join(
-                                    MEDIA_DIR, f"x_{tweet_id}_{media_key}{ext}"
+                                    user_media_dir, media_filename
                                 )
 
                                 if not os.path.exists(media_path):
@@ -318,6 +333,10 @@ def fetch_x_posts(username):
                 if media_paths:
                     new_post["media_paths"] = media_paths
                     new_post["media_types"] = media_types
+                    # Save media mapping for later retrieval
+                    utils.save_media_mapping(
+                        f"twitter_{clean_username}", tweet_id, media_paths
+                    )
                     print(f"Added {len(media_paths)} media files to tweet {tweet_id}")
                 else:
                     new_post["media_note"] = (
@@ -462,6 +481,11 @@ def fetch_instagram_posts(username):
         new_posts = []
         print(f"Fetching Instagram posts for: {username}")
 
+        # Register the account
+        utils.register_account("instagram", username)
+
+        user_media_dir = utils.get_user_media_dir("instagram", username)
+
         try:
             print(f"Attempting to fetch profile for {username}")
             profile = instaloader.Profile.from_username(L.context, username)
@@ -487,18 +511,15 @@ def fetch_instagram_posts(username):
                 media_url = post.video_url if is_video else post.url
 
                 ext = ".mp4" if is_video else ".jpg"
-                media_path = os.path.join(MEDIA_DIR, f"instagram_{post.shortcode}{ext}")
+                media_filename = utils.generate_media_filename(
+                    "instagram", post.shortcode, ext
+                )
+                media_path = os.path.join(user_media_dir, media_filename)
 
-                if not os.path.isdir(MEDIA_DIR):
-                    print(
-                        f"Media directory {MEDIA_DIR} does not exist or is not a directory"
-                    )
-                    success = False
+                if not os.path.exists(media_path):
+                    success = download_media(media_url, media_path)
                 else:
-                    if not os.path.exists(media_path):
-                        success = download_media(media_url, media_path)
-                    else:
-                        success = True
+                    success = True
 
                 new_post = {
                     "id": post.shortcode,
@@ -508,6 +529,10 @@ def fetch_instagram_posts(username):
                 if success and os.path.exists(media_path):
                     new_post["media_paths"] = [media_path]
                     new_post["media_types"] = ["video" if is_video else "photo"]
+                    # Save media mapping for later retrieval
+                    utils.save_media_mapping(
+                        f"instagram_post_{username}", post.shortcode, [media_path]
+                    )
                     print(f"Added media to Instagram post {post.shortcode}")
                 else:
                     new_post["media_note"] = "Media unavailable due to download issues"
@@ -515,8 +540,6 @@ def fetch_instagram_posts(username):
                 new_posts.append(new_post)
                 sent_posts["instagram_posts"].append(str(post.shortcode))
                 print(f"Added Instagram post ID {post.shortcode}")
-
-            # time.sleep(random.uniform(1, 3))
 
         utils.save_sent_posts(sent_posts)
         return new_posts
@@ -535,6 +558,12 @@ def fetch_instagram_stories(username):
         new_stories = []
         print(f"Fetching Instagram stories for: {username}")
 
+        # Register the account
+        utils.register_account("instagram", username)
+
+        # Create user-specific directory
+        user_media_dir = utils.get_user_media_dir("instagram_stories", username)
+
         try:
             profile = instaloader.Profile.from_username(L.context, username)
         except Exception as e:
@@ -550,20 +579,15 @@ def fetch_instagram_stories(username):
                         story_url = item.video_url if is_video else item.url
 
                         ext = ".mp4" if is_video else ".jpg"
-                        media_path = os.path.join(
-                            MEDIA_DIR, f"instagram_story_{item.mediaid}{ext}"
+                        media_filename = utils.generate_media_filename(
+                            "instagram_story", item.mediaid, ext
                         )
+                        media_path = os.path.join(user_media_dir, media_filename)
 
-                        if not os.path.isdir(MEDIA_DIR):
-                            print(
-                                f"Media directory {MEDIA_DIR} does not exist or is not a directory"
-                            )
-                            success = False
+                        if not os.path.exists(media_path):
+                            success = download_media(story_url, media_path)
                         else:
-                            if not os.path.exists(media_path):
-                                success = download_media(story_url, media_path)
-                            else:
-                                success = True
+                            success = True
 
                         new_story = {
                             "id": item.mediaid,
@@ -575,6 +599,12 @@ def fetch_instagram_stories(username):
                             new_story["media_types"] = [
                                 "video" if is_video else "photo"
                             ]
+                            # Save media mapping for later retrieval
+                            utils.save_media_mapping(
+                                f"instagram_story_{username}",
+                                item.mediaid,
+                                [media_path],
+                            )
                             print(f"Added media to Instagram story {item.mediaid}")
                         else:
                             new_story["media_note"] = (

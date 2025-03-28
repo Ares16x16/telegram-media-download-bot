@@ -76,7 +76,11 @@ async def download_bilibili_video(video_url):
             print("Could not get video info, aborting download")
             return None
         bv_id = info["id"]
-        video_path = os.path.join(MEDIA_DIR, f"bilibili_{bv_id}.mp4")
+
+        bili_media_dir = utils.get_user_media_dir("bilibili", info["author"])
+        media_filename = utils.generate_media_filename("bilibili", bv_id, ".mp4")
+        video_path = os.path.join(bili_media_dir, media_filename)
+
         if os.path.exists(video_path):
             print(f"Video already downloaded: {video_path}")
         else:
@@ -92,13 +96,17 @@ async def download_bilibili_video(video_url):
                         "Bilibili API download failed. Falling back to yt-dlp method."
                     )
                     ydl_opts = {
-                        "outtmpl": os.path.join(MEDIA_DIR, f"bilibili_{bv_id}.mp4"),
+                        "outtmpl": video_path,
                         "format": "bestvideo+bestaudio/best",
                         "merge_output_format": "mp4",
                     }
                     with YoutubeDL(ydl_opts) as ydl:
                         ydl.download([f"https://www.bilibili.com/video/{bv_id}"])
-                    video_path = os.path.join(MEDIA_DIR, f"bilibili_{bv_id}.mp4")
+
+                    utils.register_account("bilibili", info["author"])
+                    utils.save_media_mapping(
+                        f"bilibili_{info['author']}", bv_id, [video_path]
+                    )
                     return {"path": video_path, "info": info}
                 else:
                     raise e
@@ -117,8 +125,11 @@ async def download_bilibili_video(video_url):
                 "User-Agent": "Mozilla/5.0",
                 "Referer": f"https://www.bilibili.com/video/{bv_id}",
             }
-            temp_video_path = os.path.join(MEDIA_DIR, f"temp_video_{bv_id}.m4s")
-            temp_audio_path = os.path.join(MEDIA_DIR, f"temp_audio_{bv_id}.m4s")
+
+            # Create temporary file paths in the new directory structure
+            temp_video_path = os.path.join(bili_media_dir, f"temp_video_{bv_id}.m4s")
+            temp_audio_path = os.path.join(bili_media_dir, f"temp_audio_{bv_id}.m4s")
+
             print("Downloading video stream...")
             with requests.get(video_url_sel, headers=headers, stream=True) as r:
                 r.raise_for_status()
@@ -183,6 +194,12 @@ async def download_bilibili_video(video_url):
                 os.remove(temp_video_path)
             if os.path.exists(temp_audio_path):
                 os.remove(temp_audio_path)
+
+        # Register the account
+        utils.register_account("bilibili", info["author"])
+
+        # Save media mapping with author name
+        utils.save_media_mapping(f"bilibili_{info['author']}", bv_id, [video_path])
         return {"path": video_path, "info": info}
     except Exception as e:
         print(f"Error downloading video: {e}")
