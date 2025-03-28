@@ -1,0 +1,8 @@
+.env
+*.json
+__pycache__/
+*.pyc
+*.log
+media/
+.vscode/
+instagram_session

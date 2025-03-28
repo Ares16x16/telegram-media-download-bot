@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+tweepy
+instaloader
+requests
+urllib3
+bilibili-api-python
+yt-dlp
+beautifulsoup4
+python-dotenv
