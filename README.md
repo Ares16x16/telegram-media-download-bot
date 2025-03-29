@@ -4,8 +4,8 @@ Commands:
 • /pick - Interactive menu to fetch posts  
 • /fetch [x|instagram] <username> - Fetch posts by platform and username  
 • /fetch_nagi - Fetch all posts for Inoue Nagi  
-• /fetch_nagi_x - Fetch only X/Twitter posts for Inoue Nagi  
-• /fetch_nagi_ig - Fetch only Instagram posts for Inoue Nagi  
+• /fetch_nagi_x - Fetch only X/Twitter posts from Inoue Nagi  
+• /fetch_nagi_ig - Fetch only Instagram posts from Inoue Nagi  
 • /bili <url> - Download and send Bilibili video  
 • /youtube <url> - Download and send YouTube video  
 • /history - Browse previously fetched posts' media  
