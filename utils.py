@@ -222,7 +222,22 @@ def save_sent_videos(sent_videos):
         json.dump(sent_videos, f)
 
 
-def send_to_telegram(message, media_url=None, media_paths=None, media_types=None):
+def send_to_telegram(
+    message_text, media_paths=None, media_types=None, media_url=None, chat_id=None
+):
+    """
+    Send message and/or media to Telegram.
+
+    Args:
+        message_text: Text message to send
+        media_paths: List of local file paths to media files
+        media_types: List of media types (photo/video) corresponding to media_paths
+        media_url: Direct URL to a media file (alternative to media_paths)
+        chat_id: Specific chat ID to send to (defaults to CHAT_ID)
+    """
+    if chat_id is None:
+        chat_id = CHAT_ID
+
     try:
         if media_paths and len(media_paths) > 0:
             if len(media_paths) == 1:
@@ -230,10 +245,10 @@ def send_to_telegram(message, media_url=None, media_paths=None, media_types=None
                 mtype = media_types[0] if media_types else "photo"
                 if mtype == "video":
                     with open(media_path, "rb") as vid:
-                        bot.send_video(CHAT_ID, vid, caption=message)
+                        bot.send_video(chat_id, vid, caption=message_text)
                 else:
                     with open(media_path, "rb") as img:
-                        bot.send_photo(CHAT_ID, img, caption=message)
+                        bot.send_photo(chat_id, img, caption=message_text)
             else:
                 media = []
                 for i, path in enumerate(media_paths):
@@ -242,23 +257,23 @@ def send_to_telegram(message, media_url=None, media_paths=None, media_types=None
                         with open(path, "rb") as vid:
                             media.append(
                                 telebot.types.InputMediaVideo(
-                                    vid, caption=message if i == 0 else None
+                                    vid, caption=message_text if i == 0 else None
                                 )
                             )
                     else:
                         with open(path, "rb") as img:
                             media.append(
                                 telebot.types.InputMediaPhoto(
-                                    img, caption=message if i == 0 else None
+                                    img, caption=message_text if i == 0 else None
                                 )
                             )
-                bot.send_media_group(CHAT_ID, media)
+                bot.send_media_group(chat_id, media)
         elif media_url:
             try:
-                bot.send_photo(CHAT_ID, media_url, caption=message)
+                bot.send_photo(chat_id, media_url, caption=message_text)
             except Exception:
-                bot.send_message(CHAT_ID, f"{message}\n\nMedia: {media_url}")
+                bot.send_message(chat_id, f"{message_text}\n\nMedia: {media_url}")
         else:
-            bot.send_message(CHAT_ID, message)
+            bot.send_message(chat_id, message_text)
     except Exception as e:
         print(f"Error sending message: {e}")

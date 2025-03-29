@@ -9,6 +9,8 @@ import threading
 import time
 import traceback
 from datetime import datetime
+import re
+from urllib.parse import urlparse
 
 telebot.apihelper.CONNECT_TIMEOUT = 60
 telebot.apihelper.READ_TIMEOUT = 600
@@ -20,6 +22,7 @@ import youtube_downloader
 import sakurazaka_news
 import hinatazaka_news
 import nogi_news
+import media_from_link
 
 BOT_TOKEN = utils.BOT_TOKEN
 if not BOT_TOKEN or BOT_TOKEN.strip() == "":
@@ -1836,6 +1839,72 @@ Available commands:
 /help - Show this help message
 """
     bot.send_message(message.chat.id, help_text)
+
+
+def is_url_in_text(text):
+    """Check if the message contains a URL"""
+    url_pattern = re.compile(r"https?://\S+")
+    return url_pattern.search(text) is not None
+
+
+def extract_urls(text):
+    """Extract all URLs from a text"""
+    url_pattern = re.compile(r"https?://\S+")
+    return url_pattern.findall(text)
+
+
+@bot.message_handler(
+    func=lambda message: message.content_type == "text" and is_url_in_text(message.text)
+)
+def handle_url_message(message):
+    """Handle messages containing URLs by trying to extract and process media"""
+    urls = extract_urls(message.text)
+
+    if not urls:
+        return
+
+    for url in urls:
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()
+
+        # Instagram processing
+        if "instagram.com" in domain:
+            process_instagram_url(message, url, parsed_url)
+
+        # Add more URL processors here in the future
+        # elif 'twitter.com' in domain or 'x.com' in domain:
+        #     process_twitter_url(message, url, parsed_url)
+        # elif 'youtube.com' in domain or 'youtu.be' in domain:
+        #     process_youtube_url(message, url)
+        # elif 'bilibili.com' in domain:
+        #     process_bilibili_url(message, url)
+
+
+def process_instagram_url(message, url, parsed_url):
+    """Process Instagram URLs including posts and stories"""
+    path = parsed_url.path.strip("/")
+
+    # Handle Instagram stories
+    if "/stories/" in parsed_url.path:
+        bot.reply_to(
+            message,
+            "I found an Instagram story link. Attempting to download that specific story...",
+        )
+
+        try:
+            success, result_message = (
+                media_from_link.download_and_send_specific_instagram_story(message, url)
+            )
+            if not success:
+                bot.reply_to(message, f"Failed to download story: {result_message}")
+        except Exception as e:
+            bot.reply_to(message, f"Error processing Instagram story: {e}")
+            traceback.print_exc()
+
+    # Handle Instagram posts
+    elif "/p/" in parsed_url.path or "/reel/" in parsed_url.path:
+        # Will implement later, placeholder for now
+        bot.reply_to(message, "Instagram post/reel links will be supported soon!")
 
 
 if __name__ == "__main__":
