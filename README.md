@@ -3,8 +3,9 @@
 Commands:
 • /pick - Interactive menu to fetch posts  
 • /fetch [x|instagram] <username> - Fetch posts by platform and username  
-• /saku_news - Fetch sakurazaka46 news from official web
-• /hinata_news - Fetch hinatazaka46 news from official web
+• /nogi_news - Fetch Nogizaka46 news from official web
+• /saku_news - Fetch Sakurazaka46 news from official web
+• /hinata_news - Fetch Hinatazaka46 news from official web
 • /fetch_nagi - Fetch all posts for Inoue Nagi  
 • /fetch_nagi_x - Fetch only X/Twitter posts from Inoue Nagi  
 • /fetch_nagi_ig - Fetch only Instagram posts from Inoue Nagi  

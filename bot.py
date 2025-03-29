@@ -1254,31 +1254,6 @@ def view_post_callback(call):
     bot.answer_callback_query(call.id)
 
 
-@bot.message_handler(commands=["help"])
-def handle_help(message):
-    help_text = """
-Available commands:
-/pick - Interactive menu to fetch posts (recommended)
-/fetch [x|instagram] <username> - Fetch posts by platform and username
-/fetch_nagi - Fetch all posts for Inoue Nagi
-/fetch_nagi_x - Fetch only X/Twitter posts for Inoue Nagi
-/fetch_nagi_ig - Fetch only Instagram posts for Inoue Nagi
-/bili <url> - Download and send Bilibili video
-/youtube <url> - Download and send YouTube video
-/history - Browse previously fetched posts' media
-/auto_start - Start automatically fetching new posts 
-/auto_stop - Stop automatic fetching
-/auto_status - Check auto fetch status
-/auto_config - Configure auto fetch settings
-/echo <message> - Echo back your message
-/saku_news - Fetch Sakurazaka46 news by month
-/hinata_news - Fetch Hinatazaka46 news by month
-/nogi_news - Fetch Nogizaka46 news by month
-/help - Show this help message
-"""
-    bot.send_message(message.chat.id, help_text)
-
-
 @bot.message_handler(commands=["saku_news"])
 def handle_saku_news(message):
     """Step 1: Ask the user to pick a year."""
@@ -1835,6 +1810,32 @@ def nogi_detail_callback(call):
                     )
     else:
         bot.send_message(call.message.chat.id, "No news items found. Please try again.")
+
+
+@bot.message_handler(commands=["help"])
+def handle_help(message):
+    help_text = """
+Available commands:
+/pick - Interactive menu to fetch posts (recommended)
+/fetch [x|instagram] <username> - Fetch posts by platform and username
+/fetch_nagi - Fetch all posts for Inoue Nagi
+/fetch_nagi_x - Fetch only X/Twitter posts for Inoue Nagi
+/fetch_nagi_ig - Fetch only Instagram posts for Inoue Nagi
+/bili <url> - Download and send Bilibili video
+/youtube <url> - Download and send YouTube video
+/history - Browse previously fetched posts' media
+/auto_start - Start automatically fetching new posts 
+/auto_stop - Stop automatic fetching
+/auto_status - Check auto fetch status
+/auto_config - Configure auto fetch settings
+/echo <message> - Echo back your message
+/nogi_news - Fetch Nogizaka46 news by month
+/saku_news - Fetch Sakurazaka46 news by month
+/hinata_news - Fetch Hinatazaka46 news by month
+/nogi_news - Fetch Nogizaka46 news by month
+/help - Show this help message
+"""
+    bot.send_message(message.chat.id, help_text)
 
 
 if __name__ == "__main__":
