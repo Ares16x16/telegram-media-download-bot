@@ -20,7 +20,7 @@ Commands:
    ```
    pip install -r requirements.txt
    ```
-5. Copy “.env.example” to “.env” (if provided) or create a “.env” file. Add environment variables (e.g. BOT_TOKEN, CHAT_ID, etc.).
+5. Copy “.env.example” to “.env” or create a “.env” file. Add environment variables (e.g. BOT_TOKEN, CHAT_ID, etc.).
 
 ## Deployment
 1. Run the bot with:
