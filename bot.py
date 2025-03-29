@@ -5,6 +5,10 @@ import telebot.apihelper
 from telebot import types
 import json
 from collections import defaultdict
+import threading
+import time
+import traceback
+from datetime import datetime
 
 telebot.apihelper.CONNECT_TIMEOUT = 60
 telebot.apihelper.READ_TIMEOUT = 600
@@ -31,6 +35,225 @@ TWITTER_MEDIA_DIR = os.path.join(MEDIA_DIR, "twitter")
 INSTAGRAM_POSTS_DIR = os.path.join(MEDIA_DIR, "instagram", "posts")
 INSTAGRAM_STORIES_DIR = os.path.join(MEDIA_DIR, "instagram", "stories")
 BILIBILI_MEDIA_DIR = os.path.join(MEDIA_DIR, "bilibili")
+
+# Auto-fetch configuration
+auto_fetch_thread = None
+auto_fetch_running = False
+auto_fetch_interval = 15 * 60  # 30 minutes in seconds
+auto_fetch_accounts = {"x": [X_USERNAME], "instagram": [INSTAGRAM_USERNAME]}
+last_fetch_time = None
+
+
+def auto_fetch_worker():
+    """Background worker that periodically checks for new posts"""
+    global auto_fetch_running, last_fetch_time
+
+    while auto_fetch_running:
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{current_time}] Running auto fetch...")
+
+            # Fetch X posts
+            for username in auto_fetch_accounts["x"]:
+                try:
+                    new_posts = fetchers.fetch_x_posts(username)
+                    if new_posts:
+                        for post in new_posts:
+                            utils.send_to_telegram(
+                                f"New X post from @{username}:\n\n{post['content']}\n\n{post['url']}",
+                                media_paths=post.get("media_paths"),
+                                media_types=post.get("media_types"),
+                            )
+                        print(
+                            f"[{current_time}] Fetched {len(new_posts)} new X posts from @{username}"
+                        )
+                except Exception as e:
+                    print(f"Error fetching X posts for {username}: {e}")
+                    traceback.print_exc()
+
+            for username in auto_fetch_accounts["instagram"]:
+                try:
+                    # fetch post
+                    insta_posts = fetchers.fetch_instagram_posts(username)
+                    if insta_posts:
+                        for post in insta_posts:
+                            if post.get("media_paths"):
+                                utils.send_to_telegram(
+                                    f"New Instagram post from @{username}:\n\n{post['content']}\n\n{post['url']}",
+                                    media_paths=post.get("media_paths"),
+                                    media_types=post.get("media_types"),
+                                )
+                            else:
+                                utils.send_to_telegram(
+                                    f"New Instagram post from @{username}:\n\n{post['content']}\n\n{post['url']}",
+                                    media_url=post.get("media_url"),
+                                )
+                        print(
+                            f"[{current_time}] Fetched {len(insta_posts)} new Instagram posts from @{username}"
+                        )
+
+                    # Fetch stories
+                    insta_stories = fetchers.fetch_instagram_stories(username)
+                    if insta_stories:
+                        for story in insta_stories:
+                            if story.get("media_paths"):
+                                utils.send_to_telegram(
+                                    f"New Instagram story from @{username}:\n\n{story['content']}",
+                                    media_paths=story.get("media_paths"),
+                                    media_types=story.get("media_types"),
+                                )
+                            else:
+                                utils.send_to_telegram(
+                                    f" New Instagram story from @{username}:\n\n{story['content']}",
+                                    media_url=story.get("url"),
+                                )
+                        print(
+                            f"[{current_time}] Fetched {len(insta_stories)} new Instagram stories from @{username}"
+                        )
+                except Exception as e:
+                    print(f"Error fetching Instagram content for {username}: {e}")
+                    traceback.print_exc()
+
+            last_fetch_time = current_time
+        except Exception as e:
+            print(f"Error in auto fetch worker: {e}")
+            traceback.print_exc()
+
+        for _ in range(auto_fetch_interval):
+            if not auto_fetch_running:
+                break
+            time.sleep(1)
+
+
+def start_auto_fetch():
+    """Start the auto fetch background thread"""
+    global auto_fetch_thread, auto_fetch_running
+
+    if auto_fetch_running:
+        return False
+
+    auto_fetch_running = True
+    auto_fetch_thread = threading.Thread(target=auto_fetch_worker)
+    auto_fetch_thread.daemon = True
+    auto_fetch_thread.start()
+    return True
+
+
+def stop_auto_fetch():
+    """Stop the auto fetch background thread"""
+    global auto_fetch_running
+
+    if not auto_fetch_running:
+        return False
+
+    auto_fetch_running = False
+    return True
+
+
+@bot.message_handler(commands=["auto_start"])
+def handle_auto_start(message):
+    """Start automatic fetching of posts"""
+    try:
+        result = start_auto_fetch()
+        if result:
+            bot.reply_to(
+                message,
+                f"Auto fetch started. Will check for new posts every {auto_fetch_interval//60} minutes.",
+            )
+        else:
+            bot.reply_to(message, "Auto fetch is already running.")
+    except Exception as e:
+        bot.reply_to(message, f"Error starting auto fetch: {e}")
+
+
+@bot.message_handler(commands=["auto_stop"])
+def handle_auto_stop(message):
+    """Stop automatic fetching of posts"""
+    try:
+        result = stop_auto_fetch()
+        if result:
+            bot.reply_to(message, "Auto fetch stopped.")
+        else:
+            bot.reply_to(message, "Auto fetch is not running.")
+    except Exception as e:
+        bot.reply_to(message, f"Error stopping auto fetch: {e}")
+
+
+@bot.message_handler(commands=["auto_status"])
+def handle_auto_status(message):
+    """Check the status of auto fetch"""
+    status = "running" if auto_fetch_running else "stopped"
+    accounts_info = (
+        f"X accounts: {', '.join('@' + a for a in auto_fetch_accounts['x'])}\n"
+        f"Instagram accounts: {', '.join('@' + a for a in auto_fetch_accounts['instagram'])}"
+    )
+    interval_info = f"Checking interval: {auto_fetch_interval//60} minutes"
+    last_run = (
+        f"Last fetch: {last_fetch_time}"
+        if last_fetch_time
+        else "No fetches performed yet"
+    )
+
+    status_message = (
+        f"Auto fetch is {status}\n\n{accounts_info}\n{interval_info}\n{last_run}"
+    )
+    bot.reply_to(message, status_message)
+
+
+@bot.message_handler(commands=["auto_config"])
+def handle_auto_config(message):
+    """Configure auto fetch settings"""
+    global auto_fetch_interval, auto_fetch_accounts
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2:
+        current_config = (
+            f"Current auto fetch configuration:\n\n"
+            f"X accounts: {', '.join('@' + a for a in auto_fetch_accounts['x'])}\n"
+            f"Instagram accounts: {', '.join('@' + a for a in auto_fetch_accounts['instagram'])}\n"
+            f"Interval: {auto_fetch_interval//60} minutes\n\n"
+            f"Usage: /auto_config interval=30 x=username1,username2 instagram=username1,username2"
+        )
+        bot.reply_to(message, current_config)
+        return
+
+    try:
+        config_text = parts[1]
+        config_parts = config_text.split()
+
+        for part in config_parts:
+            if "=" not in part:
+                continue
+
+            key, value = part.split("=", 1)
+            key = key.lower().strip()
+            value = value.strip()
+
+            if key == "interval":
+                try:
+                    minutes = int(value)
+                    if minutes < 5:
+                        bot.reply_to(message, "Interval must be at least 5 minutes.")
+                        continue
+                    auto_fetch_interval = minutes * 60
+                except ValueError:
+                    bot.reply_to(message, f"Invalid interval value: {value}")
+            elif key == "x" or key == "twitter":
+                usernames = [u.strip() for u in value.split(",") if u.strip()]
+                auto_fetch_accounts["x"] = usernames
+            elif key == "instagram" or key == "ig":
+                usernames = [u.strip() for u in value.split(",") if u.strip()]
+                auto_fetch_accounts["instagram"] = usernames
+
+        bot.reply_to(
+            message,
+            f"Auto fetch configuration updated:\n\n"
+            f"X accounts: {', '.join('@' + a for a in auto_fetch_accounts['x'])}\n"
+            f"Instagram accounts: {', '.join('@' + a for a in auto_fetch_accounts['instagram'])}\n"
+            f"Interval: {auto_fetch_interval//60} minutes",
+        )
+    except Exception as e:
+        bot.reply_to(message, f"Error configuring auto fetch: {e}")
 
 
 @bot.message_handler(commands=["pick"])
@@ -306,13 +529,13 @@ def handle_fetch_nagi(message):
         for story in insta_stories:
             if story.get("media_paths"):
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!",
+                    f"{story['content']}",
                     media_paths=story.get("media_paths"),
                     media_types=story.get("media_types"),
                 )
             else:
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!", media_url=story.get("url")
+                    f"{story['content']}", media_url=story.get("url")
                 )
         bot.send_message(CHAT_ID, f"Fetched {count} new posts for nagi_italy.")
     except Exception as e:
@@ -1040,6 +1263,10 @@ Available commands:
 /bili <url> - Download and send Bilibili video
 /youtube <url> - Download and send YouTube video
 /history - Browse previously fetched posts' media
+/auto_start - Start automatically fetching new posts 
+/auto_stop - Stop automatic fetching
+/auto_status - Check auto fetch status
+/auto_config - Configure auto fetch settings
 /echo <message> - Echo back your message
 /help - Show this help message
 """
@@ -1048,4 +1275,12 @@ Available commands:
 
 if __name__ == "__main__":
     print("Combined bot started. Listening for commands...")
+    # Try to start auto-fetch by default
+    try:
+        if start_auto_fetch():
+            print(
+                f"Auto fetch started. Will check for new posts every {auto_fetch_interval//60} minutes."
+            )
+    except Exception as e:
+        print(f"Failed to start auto fetch: {e}")
     bot.polling()
