@@ -384,14 +384,12 @@ def handle_echo(message):
 
 @bot.message_handler(commands=["history"])
 def handle_history(message):
-    """Command to browse previously fetched posts"""
+    """Browse previously fetched posts"""
     markup = types.InlineKeyboardMarkup(row_width=2)
-
-    # Platform buttons
     item_x = types.InlineKeyboardButton(
         "X (Twitter)", callback_data="history_select_platform_twitter"
     )
-    item_ig = types.InlineKeyboardButton(
+    item_ig_posts = types.InlineKeyboardButton(
         "Instagram Posts", callback_data="history_select_platform_instagram_posts"
     )
     item_ig_stories = types.InlineKeyboardButton(
@@ -400,10 +398,8 @@ def handle_history(message):
     item_bili = types.InlineKeyboardButton(
         "Bilibili Videos", callback_data="history_select_platform_bilibili"
     )
-
-    markup.add(item_x, item_ig)
+    markup.add(item_x, item_ig_posts)
     markup.add(item_ig_stories, item_bili)
-
     bot.send_message(
         message.chat.id, "Browse history - select a platform:", reply_markup=markup
     )
@@ -417,13 +413,10 @@ def history_select_platform_callback(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
 
-    # Get accounts for this platform
     accounts = utils.get_accounts_by_platform(platform)
 
-    # Fallback: If no accounts found, try scanning directories directly
     if not accounts:
         try:
-            # Use the constants defined at the top of the file
             platform_dir_map = {
                 "twitter": TWITTER_MEDIA_DIR,
                 "instagram_posts": INSTAGRAM_POSTS_DIR,
@@ -433,19 +426,15 @@ def history_select_platform_callback(call):
 
             if platform in platform_dir_map:
                 media_dir = platform_dir_map[platform]
-                print(f"Looking for {platform} accounts in directory: {media_dir}")
 
                 if os.path.exists(media_dir):
-                    # List subdirectories (account names)
                     accounts = [
                         d
                         for d in os.listdir(media_dir)
                         if os.path.isdir(os.path.join(media_dir, d))
                     ]
 
-                    # Special handling for Instagram stories which might follow different patterns
                     if platform == "instagram_stories" and not accounts:
-                        # Try looking directly in the instagram directory for stories
                         stories_pattern_dirs = [
                             os.path.join(MEDIA_DIR, "instagram", "stories"),
                             os.path.join(MEDIA_DIR, "instagram"),
@@ -453,7 +442,6 @@ def history_select_platform_callback(call):
 
                         for dir_path in stories_pattern_dirs:
                             if os.path.exists(dir_path):
-                                # Look for "stories_" prefixed dirs or any dirs in stories/
                                 for d in os.listdir(dir_path):
                                     full_path = os.path.join(dir_path, d)
                                     if os.path.isdir(full_path) and (
@@ -463,49 +451,29 @@ def history_select_platform_callback(call):
                                         accounts.append(d.replace("stories_", ""))
 
                         if accounts:
-                            # Remove duplicates but preserve order
                             seen = set()
                             accounts = [
                                 x for x in accounts if not (x in seen or seen.add(x))
                             ]
-                            print(
-                                f"Found story accounts via pattern matching: {accounts}"
-                            )
 
-                    # Register hardcoded accounts if still no accounts found
                     if not accounts:
                         if platform == "instagram_stories":
                             accounts = ["nagi.i_official"]
-                            print(
-                                f"Using hardcoded Instagram story account: {accounts}"
-                            )
                         elif platform == "twitter":
                             accounts = [X_USERNAME]
-                            print(f"Using hardcoded Twitter account: {accounts}")
                         elif platform == "instagram_posts":
                             accounts = [INSTAGRAM_USERNAME]
-                            print(f"Using hardcoded Instagram account: {accounts}")
-                    else:
-                        print(
-                            f"Found accounts via directory scanning for {platform}: {accounts}"
-                        )
         except Exception as e:
-            print(f"Error in directory scanning fallback: {e}")
             import traceback
 
             traceback.print_exc()
 
     if not accounts:
         bot.edit_message_text(
-            f"No accounts found for {platform.replace('_', ' ')}. Fetch some content first!\n"
-            f"Check if media files are in expected locations:\n"
-            f"- Instagram posts: {INSTAGRAM_POSTS_DIR}\n"
-            f"- Instagram stories: {INSTAGRAM_STORIES_DIR}\n"
-            f"- Twitter: {TWITTER_MEDIA_DIR}",
+            f"No accounts found for {platform.replace('_', ' ')}. Fetch some content first!\n",
             chat_id=chat_id,
             message_id=call.message.message_id,
         )
-        # Add back button
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton(
@@ -517,10 +485,8 @@ def history_select_platform_callback(call):
         )
         return
 
-    # Store the selected platform in user state
     user_states[user_id] = {"platform": platform}
 
-    # Create account selection buttons
     markup = types.InlineKeyboardMarkup(row_width=1)
     for account in accounts:
         markup.add(
@@ -530,7 +496,6 @@ def history_select_platform_callback(call):
             )
         )
 
-    # Add back button
     markup.add(
         types.InlineKeyboardButton("Back", callback_data="history_back_to_platforms")
     )
@@ -549,8 +514,8 @@ def history_select_platform_callback(call):
     func=lambda call: call.data.startswith("history_select_account_")
 )
 def history_select_account_callback(call):
-    # Parse the platform and account from the callback data
     parts = call.data.split("_", 4)
+
     if len(parts) >= 5:
         platform = parts[3]
         account = parts[4]
@@ -561,52 +526,70 @@ def history_select_account_callback(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
 
-    # Load sent posts data
+    if account.startswith("posts_"):
+        account = account.replace("posts_", "", 1)
+    elif account.startswith("stories_"):
+        account = account.replace("stories_", "", 1)
+
     sent_posts = utils.load_sent_posts()
 
-    if platform == "twitter":
+    if platform in ["twitter", "x"]:
+        platform_type = "twitter"
+        post_list_key = "x_posts"
+        platform_key = f"twitter_{account}"
+    elif platform in ["instagram_posts", "instagram/posts", "instagram_post"]:
+        platform_type = "instagram_posts"
+        post_list_key = "instagram_posts"
+        platform_key = f"instagram_post_{account}"
+    elif platform in ["instagram_stories", "instagram/stories", "instagram_story"]:
+        platform_type = "instagram_stories"
+        post_list_key = "instagram_stories"
+        platform_key = f"instagram_story_{account}"
+    elif platform == "instagram":
+        platform_type = "instagram_posts"
+        post_list_key = "instagram_posts"
+        platform_key = f"instagram_post_{account}"
+    elif platform == "bilibili":
+        platform_type = "bilibili"
+        post_list_key = None
+        platform_key = f"bilibili_{account}"
+    else:
+        bot.answer_callback_query(call.id, f"Unknown platform: {platform}")
+        return
+
+    if platform_type == "twitter":
         posts = [
             p
             for p in sent_posts.get("x_posts", [])
             if f"twitter_{account}_{p}" in sent_posts.get("media_mapping", {})
         ]
-        platform_key = f"twitter_{account}"
-    elif platform == "instagram_posts":
+    elif platform_type == "instagram_posts":
         posts = [
             p
             for p in sent_posts.get("instagram_posts", [])
             if f"instagram_post_{account}_{p}" in sent_posts.get("media_mapping", {})
         ]
-        platform_key = f"instagram_post_{account}"
-    elif platform == "instagram_stories":
+    elif platform_type == "instagram_stories":
         posts = [
             p
             for p in sent_posts.get("instagram_stories", [])
             if f"instagram_story_{account}_{p}" in sent_posts.get("media_mapping", {})
         ]
-        platform_key = f"instagram_story_{account}"
-    elif platform == "bilibili":
-        # Get videos from sent_videos.json
+    elif platform_type == "bilibili":
         sent_videos = utils.load_sent_videos()
         posts = [
             p
             for p in sent_videos.get("videos", [])
             if f"bilibili_{account}_{p}" in sent_posts.get("media_mapping", {})
         ]
-        platform_key = f"bilibili_{account}"
     else:
-        bot.answer_callback_query(call.id, "Unknown platform")
+        bot.answer_callback_query(call.id, f"Unsupported platform: {platform}")
         return
 
     if not posts:
-        # If we didn't find posts with the detailed mapping, fall back to all posts for this account
-        if platform == "twitter":
-            posts = sent_posts.get("x_posts", [])
-        elif platform == "instagram_posts":
-            posts = sent_posts.get("instagram_posts", [])
-        elif platform == "instagram_stories":
-            posts = sent_posts.get("instagram_stories", [])
-        elif platform == "bilibili":
+        if post_list_key and post_list_key in sent_posts:
+            posts = sent_posts.get(post_list_key, [])
+        elif platform_type == "bilibili":
             sent_videos = utils.load_sent_videos()
             posts = sent_videos.get("videos", [])
 
@@ -616,7 +599,6 @@ def history_select_account_callback(call):
             chat_id=chat_id,
             message_id=call.message.message_id,
         )
-        # Add back button
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton(
@@ -628,9 +610,8 @@ def history_select_account_callback(call):
         )
         return
 
-    # Store user state for pagination
     user_states[user_id] = {
-        "platform": platform,
+        "platform": platform_type,
         "platform_key": platform_key,
         "account": account,
         "posts": posts,
@@ -638,7 +619,6 @@ def history_select_account_callback(call):
         "posts_per_page": 5,
     }
 
-    # Show the first page
     show_posts_page(user_id, chat_id, call.message.message_id)
     bot.answer_callback_query(call.id)
 
@@ -669,11 +649,9 @@ def history_navigation_callback(call):
         show_posts_page(user_id, chat_id, call.message.message_id)
 
     elif call.data == "history_back_to_platforms":
-        # Go back to platform selection
         handle_history(call.message)
 
     elif call.data == "history_back_to_accounts":
-        # Go back to account selection
         platform = user_states[user_id].get("platform")
         if platform:
             history_select_platform_callback(
@@ -689,7 +667,6 @@ def history_navigation_callback(call):
 
 
 def show_posts_page(user_id, chat_id, message_id):
-    """Display a page of posts with pagination controls"""
     state = user_states.get(user_id, {})
     platform = state.get("platform", "")
     account = state.get("account", "")
@@ -704,7 +681,6 @@ def show_posts_page(user_id, chat_id, message_id):
 
     markup = types.InlineKeyboardMarkup(row_width=3)
 
-    # Add buttons for each post on this page
     post_buttons = []
     for i, post_id in enumerate(page_posts):
         post_idx = start_idx + i
@@ -715,14 +691,12 @@ def show_posts_page(user_id, chat_id, message_id):
             )
         )
 
-    # Add post buttons in rows of 2
     for i in range(0, len(post_buttons), 2):
         if i + 1 < len(post_buttons):
             markup.add(post_buttons[i], post_buttons[i + 1])
         else:
             markup.add(post_buttons[i])
 
-    # Navigation buttons
     nav_buttons = []
     if current_page > 0:
         nav_buttons.append(
@@ -747,7 +721,6 @@ def show_posts_page(user_id, chat_id, message_id):
         )
     )
 
-    # Create message text
     platform_name = platform.replace("_", " ").capitalize()
     message_text = (
         f"{platform_name} History for @{account}\n"
@@ -762,28 +735,38 @@ def show_posts_page(user_id, chat_id, message_id):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_post_"))
 def view_post_callback(call):
-    parts = call.data.split("_")
-    if len(parts) < 5:  # Format: view_post_platform_account_postid
+    call_data = call.data[
+        len("view_post_") :
+    ]  # e.g. "instagram_posts_nagi.i_official_DHF-Pm3yoxf"
+    parts = call_data.split("_")
+
+    # Identify platform first
+    if len(parts) >= 2 and parts[0] == "instagram" and parts[1] in ["posts", "stories"]:
+        platform = "_".join(parts[:2])  # "instagram_posts" or "instagram_stories"
+        the_rest = parts[2:]
+    else:
+        platform = parts[0]  # e.g., "twitter" or "bilibili"
+        the_rest = parts[1:]
+
+    if len(the_rest) < 2:
         bot.answer_callback_query(call.id, "Invalid post data")
         return
 
-    platform = parts[2]
-    account = parts[3]
-    post_id = "_".join(parts[4:])  # In case the ID contains underscores
+    # The last chunk is the post_id, everything else is account
+    post_id = the_rest[-1]
+    account = "_".join(the_rest[:-1])
+
+    if account.startswith("posts_"):
+        account = account.replace("posts_", "", 1)
+    elif account.startswith("stories_"):
+        account = account.replace("stories_", "", 1)
 
     user_id = call.from_user.id
     chat_id = call.message.chat.id
 
-    if user_id not in user_states:
-        bot.answer_callback_query(call.id, "Session expired. Please start over.")
-        return
-
     platform_key = f"{user_states[user_id].get('platform_key', '')}_{post_id}"
-
-    # First try using the platform_key
     media_paths = utils.get_post_media_files(platform_key, post_id)
 
-    # If no media found, try with just basic platform type
     if not media_paths:
         base_platform = ""
         if platform == "twitter":
@@ -797,16 +780,11 @@ def view_post_callback(call):
 
         media_paths = utils.get_post_media_files(base_platform, post_id)
 
-    # If still no media, try scanning directories with our new structure
     if not media_paths:
-        print(
-            f"No media mapping found for {platform_key}_{post_id}, trying to scan directories"
-        )
         try:
-            # Try to locate media based on expected directory structure
             if platform == "twitter":
-                account_dir = os.path.join(TWITTER_MEDIA_DIR, account)
-                post_dir = os.path.join(account_dir, post_id)
+                post_dir = os.path.join(TWITTER_MEDIA_DIR, account, post_id)
+
                 if os.path.exists(post_dir):
                     media_paths = [
                         os.path.join(post_dir, f)
@@ -821,8 +799,49 @@ def view_post_callback(call):
                     ]
 
             elif platform == "instagram_posts":
-                account_dir = os.path.join(INSTAGRAM_POSTS_DIR, account)
-                post_dir = os.path.join(account_dir, post_id)
+                post_dir = os.path.join(INSTAGRAM_POSTS_DIR, account, post_id)
+
+                if os.path.exists(post_dir):
+                    media_paths = [
+                        os.path.join(post_dir, f)
+                        for f in os.listdir(post_dir)
+                        if os.path.isfile(os.path.join(post_dir, f))
+                        and (
+                            f.endswith(".jpg")
+                            or f.endswith(".jpeg")
+                            or f.endswith(".png")
+                            or f.endswith(".mp4")
+                        )
+                    ]
+                else:
+                    alt_accounts = [
+                        account.replace(".", "_"),
+                        account.replace("_", "."),
+                        f"posts_{account}",
+                    ]
+
+                    for alt_account in alt_accounts:
+                        alt_dir = os.path.join(
+                            INSTAGRAM_POSTS_DIR, alt_account, post_id
+                        )
+                        if os.path.exists(alt_dir):
+                            media_paths = [
+                                os.path.join(alt_dir, f)
+                                for f in os.listdir(alt_dir)
+                                if os.path.isfile(os.path.join(alt_dir, f))
+                                and (
+                                    f.endswith(".jpg")
+                                    or f.endswith(".jpeg")
+                                    or f.endswith(".png")
+                                    or f.endswith(".mp4")
+                                )
+                            ]
+                            if media_paths:
+                                break
+
+            elif platform == "instagram_stories":
+                post_dir = os.path.join(INSTAGRAM_STORIES_DIR, account, post_id)
+
                 if os.path.exists(post_dir):
                     media_paths = [
                         os.path.join(post_dir, f)
@@ -836,33 +855,9 @@ def view_post_callback(call):
                         )
                     ]
 
-            elif platform == "instagram_stories":
-                # Try multiple patterns for stories
-                possible_paths = [
-                    os.path.join(INSTAGRAM_STORIES_DIR, account, post_id),
-                    os.path.join(INSTAGRAM_STORIES_DIR, f"stories_{account}", post_id),
-                    os.path.join(MEDIA_DIR, "instagram", f"stories_{account}", post_id),
-                ]
-
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        media_paths = [
-                            os.path.join(path, f)
-                            for f in os.listdir(path)
-                            if os.path.isfile(os.path.join(path, f))
-                            and (
-                                f.endswith(".jpg")
-                                or f.endswith(".jpeg")
-                                or f.endswith(".png")
-                                or f.endswith(".mp4")
-                            )
-                        ]
-                        if media_paths:
-                            break
-
             elif platform == "bilibili":
-                account_dir = os.path.join(BILIBILI_MEDIA_DIR, account)
-                post_dir = os.path.join(account_dir, post_id)
+                post_dir = os.path.join(BILIBILI_MEDIA_DIR, account, post_id)
+
                 if os.path.exists(post_dir):
                     media_paths = [
                         os.path.join(post_dir, f)
@@ -871,12 +866,7 @@ def view_post_callback(call):
                         and f.endswith(".mp4")
                     ]
 
-            print(
-                f"Directory scan found {len(media_paths)} files for {platform}/{account}/{post_id}"
-            )
-
         except Exception as e:
-            print(f"Error in directory scanning fallback: {e}")
             import traceback
 
             traceback.print_exc()
@@ -901,7 +891,6 @@ def view_post_callback(call):
         )
         return
 
-    # Send the post with its media
     if platform == "twitter":
         url = f"https://twitter.com/{account}/status/{post_id}"
         caption = f"X Post from @{account}:\n{url}"
@@ -916,7 +905,6 @@ def view_post_callback(call):
     else:
         caption = f"Post ID: {post_id} from {account}"
 
-    # Send media with caption
     media_types = []
     for path in media_paths:
         if path.endswith(".mp4"):
@@ -924,7 +912,6 @@ def view_post_callback(call):
         else:
             media_types.append("photo")
 
-    # Create navigation buttons for this view
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton(
@@ -933,7 +920,6 @@ def view_post_callback(call):
         )
     )
 
-    # Attempt to send the media
     try:
         if len(media_paths) == 1:
             media_path = media_paths[0]
@@ -945,7 +931,6 @@ def view_post_callback(call):
                 with open(media_path, "rb") as img:
                     bot.send_photo(chat_id, img, caption=caption, reply_markup=markup)
         else:
-            # Send media group
             media = []
             for i, path in enumerate(media_paths):
                 mtype = media_types[i]
@@ -964,7 +949,6 @@ def view_post_callback(call):
                             )
                         )
 
-            # Send media group first, then send a message with the navigation buttons
             bot.send_media_group(chat_id, media)
             bot.send_message(
                 chat_id, "Use the button below to navigate:", reply_markup=markup
