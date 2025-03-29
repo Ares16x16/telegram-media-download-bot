@@ -19,6 +19,7 @@ import bilibili_downloader
 import youtube_downloader
 import sakurazaka_news
 import hinatazaka_news
+import nogi_news
 
 BOT_TOKEN = utils.BOT_TOKEN
 if not BOT_TOKEN or BOT_TOKEN.strip() == "":
@@ -1272,6 +1273,7 @@ Available commands:
 /echo <message> - Echo back your message
 /saku_news - Fetch Sakurazaka46 news by month
 /hinata_news - Fetch Hinatazaka46 news by month
+/nogi_news - Fetch Nogizaka46 news by month
 /help - Show this help message
 """
     bot.send_message(message.chat.id, help_text)
@@ -1433,9 +1435,7 @@ def saku_detail_callback(call):
                     disable_web_page_preview=False,
                 )
             else:
-                # Add news type if available
                 news_type = f"🏷️ {news_item['type']}\n" if news_item.get("type") else ""
-                # Add a divider and link to the original article
                 footer = f"\n\n---\n🌐 [View original article]({news_item['url']})"
                 message = f"{news_type}{detail_html}{footer}"
 
@@ -1462,7 +1462,7 @@ def saku_detail_callback(call):
 def handle_hinata_news(message):
     """Step 1: Ask the user to pick a year."""
     now = datetime.now()
-    start_year = 2019  # Hinatazaka starts from 2019/02
+    start_year = 2019  # Hinatazaka news starts from 2019/02
     markup = types.InlineKeyboardMarkup()
     for year in range(start_year, now.year + 1):
         callback_data = f"hinata_year_{year}"
@@ -1626,9 +1626,195 @@ def hinata_detail_callback(call):
                     disable_web_page_preview=False,
                 )
             else:
-                # Add news type if available
                 news_type = f"🏷️ {news_item['type']}\n" if news_item.get("type") else ""
-                # Add a divider and link to the original article
+                footer = f"\n\n---\n🌐 [View original article]({news_item['url']})"
+                message = f"{news_type}{detail_html}{footer}"
+
+                try:
+                    bot.send_message(
+                        call.message.chat.id,
+                        message,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=False,
+                    )
+                except Exception as e:
+                    # If Markdown parsing fails, send without formatting
+                    print(f"Error sending with Markdown: {e}")
+                    bot.send_message(
+                        call.message.chat.id,
+                        f"Error with formatted message. Here's the plain text:\n\n{detail_html}\n\nOriginal article: {news_item['url']}",
+                        disable_web_page_preview=False,
+                    )
+    else:
+        bot.send_message(call.message.chat.id, "No news items found. Please try again.")
+
+
+@bot.message_handler(commands=["nogi_news"])
+def handle_nogi_news(message):
+    """Step 1: Ask the user to pick a year."""
+    now = datetime.now()
+    start_year = 2012
+    markup = types.InlineKeyboardMarkup()
+    for year in range(start_year, now.year + 1):
+        callback_data = f"nogi_year_{year}"
+        markup.add(types.InlineKeyboardButton(str(year), callback_data=callback_data))
+    bot.send_message(
+        message.chat.id,
+        "Choose a year to fetch Nogizaka46 news:",
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("nogi_year_"))
+def nogi_year_callback(call):
+    """Step 2: List months for the selected year."""
+    bot.answer_callback_query(call.id)
+    parts = call.data.split("_", 2)
+    selected_year = int(parts[2])
+    now = datetime.now()
+
+    # For the current year, limit the months to the current month
+    max_month = now.month if (selected_year == now.year) else 12
+
+    markup = types.InlineKeyboardMarkup()
+    for month in range(1, max_month + 1):
+        callback_data = f"nogi_month_{selected_year}_{month}"
+        label = f"{selected_year}-{month:02d}"
+        markup.add(types.InlineKeyboardButton(label, callback_data=callback_data))
+    markup.add(types.InlineKeyboardButton("Back", callback_data="nogi_back_to_years"))
+
+    bot.edit_message_text(
+        f"Selected year: {selected_year}\nChoose a month:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "nogi_back_to_years")
+def nogi_back_to_years_callback(call):
+    """Go back to the year selection screen."""
+    bot.answer_callback_query(call.id)
+    now = datetime.now()
+    start_year = 2012  # Same as in handle_nogi_news
+    markup = types.InlineKeyboardMarkup()
+    for y in range(start_year, now.year + 1):
+        callback_data = f"nogi_year_{y}"
+        markup.add(types.InlineKeyboardButton(str(y), callback_data=callback_data))
+    bot.edit_message_text(
+        "Choose a year to fetch Nogizaka46 news:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("nogi_month_"))
+def nogi_month_callback(call):
+    """Step 3: Fetch news for the selected year-month."""
+    parts = call.data.split("_")
+    if len(parts) < 3:
+        bot.send_message(call.message.chat.id, "Invalid callback data.")
+        return
+    # data format: nogi_month_YYYY_M
+    _, _, year_str, month_str = parts
+    yr, mo = int(year_str), int(month_str)
+
+    bot.answer_callback_query(call.id, text="Fetching news, please wait...")
+
+    news_items = nogi_news.fetch_monthly_news(yr, mo)
+    if not news_items:
+        bot.send_message(call.message.chat.id, "No news found for that month.")
+        return
+
+    user_states[call.from_user.id] = {
+        "nogi_news": news_items,
+        "nogi_news_page": 0,
+        "nogi_year": yr,
+        "nogi_month": mo,
+    }
+    show_nogi_news_page(
+        call.from_user.id, call.message.chat.id, call.message.message_id
+    )
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data in ["nogi_news_prev_page", "nogi_news_next_page"]
+)
+def nogi_news_page_nav_callback(call):
+    bot.answer_callback_query(call.id)
+    uid = call.from_user.id
+    if uid not in user_states or "nogi_news" not in user_states[uid]:
+        return
+    if call.data == "nogi_news_prev_page":
+        user_states[uid]["nogi_news_page"] -= 1
+    else:
+        user_states[uid]["nogi_news_page"] += 1
+    show_nogi_news_page(uid, call.message.chat.id, call.message.message_id)
+
+
+def show_nogi_news_page(user_id, chat_id, message_id, items_per_page=10):
+    if user_id not in user_states:
+        return
+
+    all_news = user_states[user_id].get("nogi_news", [])
+    current_page = user_states[user_id].get("nogi_news_page", 0)
+    yr = user_states[user_id].get("nogi_year")
+    mo = user_states[user_id].get("nogi_month")
+
+    start_idx = current_page * items_per_page
+    end_idx = min(start_idx + items_per_page, len(all_news))
+    page_news = all_news[start_idx:end_idx]
+
+    markup = types.InlineKeyboardMarkup()
+    for idx, item in enumerate(page_news):
+        real_idx = start_idx + idx
+        callback_data = f"nogi_detail_{real_idx}"
+        markup.add(
+            types.InlineKeyboardButton(item["title"], callback_data=callback_data)
+        )
+
+    nav_row = []
+    if current_page > 0:
+        nav_row.append(
+            types.InlineKeyboardButton("Previous", callback_data="nogi_news_prev_page")
+        )
+    if end_idx < len(all_news):
+        nav_row.append(
+            types.InlineKeyboardButton("Next", callback_data="nogi_news_next_page")
+        )
+    if nav_row:
+        markup.row(*nav_row)
+
+    markup.add(types.InlineKeyboardButton("Back", callback_data="nogi_back_to_years"))
+    total_pages = (len(all_news) + items_per_page - 1) // items_per_page
+    text = f"Nogizaka46 {yr}-{mo:02d} news (Page {current_page+1}/{total_pages}):"
+    bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("nogi_detail_"))
+def nogi_detail_callback(call):
+    bot.answer_callback_query(call.id)
+    idx = int(call.data.split("_")[2])
+    if (
+        call.from_user.id in user_states
+        and "nogi_news" in user_states[call.from_user.id]
+    ):
+        news_items = user_states[call.from_user.id]["nogi_news"]
+        if 0 <= idx < len(news_items):
+            bot.send_message(call.message.chat.id, "Fetching details, please wait...")
+            news_item = news_items[idx]
+            detail_html = nogi_news.fetch_news_detail(news_item["url"])
+
+            if detail_html == "No detail found." or not detail_html:
+                bot.send_message(
+                    call.message.chat.id,
+                    f"No details available for this news item.\n\nTitle: {news_item['title']}\nDate: {news_item['date']}\n\nYou can visit the original article: [View on Web]({news_item['url']})",
+                    parse_mode="Markdown",
+                    disable_web_page_preview=False,
+                )
+            else:
+                news_type = f"🏷️ {news_item['type']}\n" if news_item.get("type") else ""
                 footer = f"\n\n---\n🌐 [View original article]({news_item['url']})"
                 message = f"{news_type}{detail_html}{footer}"
 

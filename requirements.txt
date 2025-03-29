@@ -7,3 +7,4 @@ bilibili-api-python
 yt-dlp
 beautifulsoup4
 python-dotenv
+selenium
