@@ -733,9 +733,7 @@ def show_posts_page(user_id, chat_id, message_id):
         f"Showing posts {start_idx + 1}-{end_idx} of {len(posts)}"
     )
 
-    bot.edit_message_text(
-        message_text, chat_id=chat_id, message_id=message_id, reply_markup=markup
-    )
+    bot.send_message(chat_id, message_text, reply_markup=markup)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_post_"))
