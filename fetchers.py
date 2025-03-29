@@ -120,7 +120,6 @@ if not os.path.exists(MEDIA_DIR):
 
 
 def download_media(url, path, retries=3, timeout=10):
-    # Create parent directory if needed
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     for attempt in range(retries):
@@ -204,10 +203,8 @@ def fetch_x_posts(username):
         clean_username = username.replace("@", "")
         print(f"Fetching X posts for: {clean_username}")
 
-        # Register the account
         utils.register_account("twitter", clean_username)
 
-        # Create user directory, properly structured
         base_twitter_dir = os.path.join(MEDIA_DIR, "twitter")
         user_media_dir = os.path.join(base_twitter_dir, clean_username)
         os.makedirs(user_media_dir, exist_ok=True)
@@ -310,7 +307,6 @@ def fetch_x_posts(username):
                                 media_filename = utils.generate_media_filename(
                                     "x", tweet_id, ext
                                 )
-                                # Save in tweet-specific directory
                                 media_path = os.path.join(tweet_dir, media_filename)
 
                                 if not os.path.exists(media_path):
@@ -337,7 +333,7 @@ def fetch_x_posts(username):
                 if media_paths:
                     new_post["media_paths"] = media_paths
                     new_post["media_types"] = media_types
-                    # Save media mapping for later retrieval
+
                     utils.save_media_mapping(
                         f"twitter_{clean_username}", tweet_id, media_paths
                     )
@@ -485,10 +481,8 @@ def fetch_instagram_posts(username):
         new_posts = []
         print(f"Fetching Instagram posts for: {username}")
 
-        # Register the account
         utils.register_account("instagram", username)
 
-        # Create user-specific directory in the correct structure
         base_posts_dir = os.path.join(MEDIA_DIR, "instagram", "posts")
         user_media_dir = os.path.join(base_posts_dir, username)
         os.makedirs(user_media_dir, exist_ok=True)
@@ -517,7 +511,6 @@ def fetch_instagram_posts(username):
                 is_video = post.is_video
                 media_url = post.video_url if is_video else post.url
 
-                # Create post-specific directory
                 post_dir = os.path.join(user_media_dir, str(post.shortcode))
                 os.makedirs(post_dir, exist_ok=True)
 
@@ -525,7 +518,6 @@ def fetch_instagram_posts(username):
                 media_filename = utils.generate_media_filename(
                     "instagram", post.shortcode, ext
                 )
-                # Save in post-specific directory
                 media_path = os.path.join(post_dir, media_filename)
 
                 if not os.path.exists(media_path):
@@ -541,7 +533,7 @@ def fetch_instagram_posts(username):
                 if success and os.path.exists(media_path):
                     new_post["media_paths"] = [media_path]
                     new_post["media_types"] = ["video" if is_video else "photo"]
-                    # Save media mapping for later retrieval
+
                     utils.save_media_mapping(
                         f"instagram_post_{username}", post.shortcode, [media_path]
                     )
@@ -570,10 +562,8 @@ def fetch_instagram_stories(username):
         new_stories = []
         print(f"Fetching Instagram stories for: {username}")
 
-        # Register the account
         utils.register_account("instagram", username)
 
-        # Create user-specific directory in the correct structure
         base_stories_dir = os.path.join(MEDIA_DIR, "instagram", "stories")
         user_media_dir = os.path.join(base_stories_dir, username)
         os.makedirs(user_media_dir, exist_ok=True)
@@ -592,7 +582,6 @@ def fetch_instagram_stories(username):
                         is_video = item.is_video
                         story_url = item.video_url if is_video else item.url
 
-                        # Create story-specific directory
                         story_dir = os.path.join(user_media_dir, str(item.mediaid))
                         os.makedirs(story_dir, exist_ok=True)
 
@@ -600,7 +589,6 @@ def fetch_instagram_stories(username):
                         media_filename = utils.generate_media_filename(
                             "instagram_story", item.mediaid, ext
                         )
-                        # Save in story-specific directory
                         media_path = os.path.join(story_dir, media_filename)
 
                         if not os.path.exists(media_path):
@@ -618,7 +606,7 @@ def fetch_instagram_stories(username):
                             new_story["media_types"] = [
                                 "video" if is_video else "photo"
                             ]
-                            # Save media mapping for later retrieval
+
                             utils.save_media_mapping(
                                 f"instagram_story_{username}",
                                 item.mediaid,

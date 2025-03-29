@@ -12,6 +12,7 @@ telebot.apihelper.READ_TIMEOUT = 600
 import utils
 import fetchers
 import bilibili_downloader
+import youtube_downloader
 
 BOT_TOKEN = utils.BOT_TOKEN
 if not BOT_TOKEN or BOT_TOKEN.strip() == "":
@@ -25,7 +26,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 user_states = {}
 
-# Constants for media directory structure
 MEDIA_DIR = utils.MEDIA_DIR
 TWITTER_MEDIA_DIR = os.path.join(MEDIA_DIR, "twitter")
 INSTAGRAM_POSTS_DIR = os.path.join(MEDIA_DIR, "instagram", "posts")
@@ -167,6 +167,30 @@ def handle_bili(message):
         result = asyncio.run(bilibili_downloader.process_video(link))
     except Exception as e:
         bot.send_message(CHAT_ID, f"Error in /bili command: {e}")
+
+
+@bot.message_handler(commands=["youtube"])
+def handle_youtube(message):
+    try:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) != 2:
+            bot.reply_to(message, "Usage: /youtube <video_link>")
+            return
+        link = parts[1].strip()
+        bot.reply_to(message, "Processing YouTube video...")
+        result = asyncio.run(youtube_downloader.process_video(link))
+        if not result:
+            bot.send_message(CHAT_ID, "Failed to download YouTube video.")
+            return
+        caption = f"{result['title']}\n\n{link}"
+        utils.send_to_telegram(
+            caption,
+            media_paths=[result["path"]],
+            media_types=["video"],
+        )
+        bot.send_message(CHAT_ID, "YouTube video downloaded.")
+    except Exception as e:
+        bot.send_message(CHAT_ID, f"Error in /youtube command: {e}")
 
 
 @bot.message_handler(commands=["fetch"])
@@ -370,10 +394,8 @@ def handle_fetch_nagi_ig(message):
 @bot.message_handler(commands=["echo"])
 def handle_echo(message):
     try:
-        # Get the text after "/echo "
         command_length = len("/echo ")
         if len(message.text) <= command_length:
-            # If there's nothing after the command
             bot.reply_to(message, "Usage: /echo <your message>")
             return
 
@@ -744,7 +766,6 @@ def view_post_callback(call):
     ]  # e.g. "instagram_posts_nagi.i_official_DHF-Pm3yoxf"
     parts = call_data.split("_")
 
-    # Identify platform first
     if len(parts) >= 2 and parts[0] == "instagram" and parts[1] in ["posts", "stories"]:
         platform = "_".join(parts[:2])  # "instagram_posts" or "instagram_stories"
         the_rest = parts[2:]
@@ -894,7 +915,7 @@ def view_post_callback(call):
                         if os.path.isfile(os.path.join(post_dir, f))
                         and f.endswith(".mp4")
                     ]
-                # Add alternate account search, similar to Instagram
+                # alternate account search, similar to Instagram
                 else:
                     alt_accounts = [
                         account.replace(".", "_"),
@@ -1017,6 +1038,7 @@ Available commands:
 /fetch_nagi_x - Fetch only X/Twitter posts for Inoue Nagi
 /fetch_nagi_ig - Fetch only Instagram posts for Inoue Nagi
 /bili <url> - Download and send Bilibili video
+/youtube <url> - Download and send YouTube video
 /history - Browse previously fetched posts' media
 /echo <message> - Echo back your message
 /help - Show this help message

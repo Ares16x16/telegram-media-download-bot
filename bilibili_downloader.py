@@ -80,7 +80,7 @@ async def download_bilibili_video(video_url):
         author = info["author"]
         author_sanitized = author.replace(" ", "_")
 
-        # Create directory structure similar to Instagram: media/bilibili/account_name/video_id/
+        # media/bilibili/account_name/video_id/
         account_dir = os.path.join(BILIBILI_MEDIA_DIR, author_sanitized)
         video_dir = os.path.join(account_dir, bv_id)
 
@@ -89,7 +89,6 @@ async def download_bilibili_video(video_url):
         if not os.path.exists(video_dir):
             os.makedirs(video_dir)
 
-        # Set video path using the new directory structure
         video_path = os.path.join(video_dir, f"{bv_id}.mp4")
 
         if os.path.exists(video_path):
@@ -137,7 +136,6 @@ async def download_bilibili_video(video_url):
                 "Referer": f"https://www.bilibili.com/video/{bv_id}",
             }
 
-            # Updated temp file paths to use the new directory structure
             temp_video_path = os.path.join(video_dir, f"temp_video_{bv_id}.m4s")
             temp_audio_path = os.path.join(video_dir, f"temp_audio_{bv_id}.m4s")
 
@@ -206,10 +204,7 @@ async def download_bilibili_video(video_url):
             if os.path.exists(temp_audio_path):
                 os.remove(temp_audio_path)
 
-        # Register the account
         utils.register_account("bilibili", author_sanitized)
-
-        # Save media mapping with author name
         utils.save_media_mapping(f"bilibili_{author_sanitized}", bv_id, [video_path])
         return {"path": video_path, "info": info}
     except Exception as e:
