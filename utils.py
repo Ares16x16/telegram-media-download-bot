@@ -277,3 +277,43 @@ def send_to_telegram(
             bot.send_message(chat_id, message_text)
     except Exception as e:
         print(f"Error sending message: {e}")
+
+
+def download_media(url, path, retries=3, timeout=10):
+    """
+    Download media from URL to specified path
+
+    Args:
+        url: URL to download from
+        path: Path to save the file
+        retries: Number of retry attempts
+        timeout: Connection timeout in seconds
+
+    Returns:
+        bool: True if download was successful
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    for attempt in range(retries):
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            response = requests.get(url, headers=headers, stream=True, timeout=timeout)
+            if response.status_code == 200:
+                try:
+                    with open(path, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    print(f"Downloaded media to {path}")
+                    return True
+                except Exception as e:
+                    print(f"Error writing to {path}: {e}")
+                    return False
+            else:
+                print(f"Attempt {attempt+1}: HTTP {response.status_code}")
+        except Exception as e:
+            print(f"Attempt {attempt+1}: Error downloading media {url}: {e}")
+        time.sleep(2)
+    print(f"Failed to download media {url} after {retries} attempts")
+    return False

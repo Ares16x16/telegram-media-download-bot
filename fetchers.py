@@ -553,7 +553,11 @@ def fetch_instagram_posts(username):
         return []
 
 
-def fetch_instagram_stories(username):
+def fetch_instagram_stories(username, skip_tracking=False):
+    """
+    Fetch Instagram stories for a specific username.
+    When skip_tracking=True, it won't save stories to the JSON tracking file.
+    """
     if not INSTAGRAM_AVAILABLE:
         print("INSTAGRAM_AVAILABLE is False, skipping Instagram stories.")
         return []
@@ -625,6 +629,9 @@ def fetch_instagram_stories(username):
             print("Instagram login required to fetch stories")
         except Exception as e:
             print(f"Error processing stories: {e}")
+
+        if skip_tracking:
+            return new_stories
 
         utils.save_sent_posts(sent_posts)
         return new_stories

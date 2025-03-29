@@ -1815,6 +1815,9 @@ def nogi_detail_callback(call):
         bot.send_message(call.message.chat.id, "No news items found. Please try again.")
 
 
+########################################################　Help command handler　########################################################
+
+
 @bot.message_handler(commands=["help"])
 def handle_help(message):
     help_text = """
@@ -1835,10 +1838,12 @@ Available commands:
 /nogi_news - Fetch Nogizaka46 news by month
 /saku_news - Fetch Sakurazaka46 news by month
 /hinata_news - Fetch Hinatazaka46 news by month
-/nogi_news - Fetch Nogizaka46 news by month
 /help - Show this help message
 """
     bot.send_message(message.chat.id, help_text)
+
+
+########################################################　Help command handler　########################################################
 
 
 def is_url_in_text(text):
@@ -1901,10 +1906,22 @@ def process_instagram_url(message, url, parsed_url):
             bot.reply_to(message, f"Error processing Instagram story: {e}")
             traceback.print_exc()
 
-    # Handle Instagram posts
+    # Handle Instagram posts or reels
     elif "/p/" in parsed_url.path or "/reel/" in parsed_url.path:
-        # Will implement later, placeholder for now
-        bot.reply_to(message, "Instagram post/reel links will be supported soon!")
+        bot.reply_to(
+            message,
+            "I found an Instagram post link. Attempting to download that post...",
+        )
+
+        try:
+            success, result_message = media_from_link.download_and_send_instagram_post(
+                message, url
+            )
+            if not success:
+                bot.reply_to(message, f"Failed to download post: {result_message}")
+        except Exception as e:
+            bot.reply_to(message, f"Error processing Instagram post: {e}")
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
