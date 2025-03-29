@@ -514,6 +514,7 @@ def history_select_platform_callback(call):
     func=lambda call: call.data.startswith("history_select_account_")
 )
 def history_select_account_callback(call):
+    # print(call.data)
     parts = call.data.split("_", 4)
 
     if len(parts) >= 5:
@@ -528,8 +529,10 @@ def history_select_account_callback(call):
 
     if account.startswith("posts_"):
         account = account.replace("posts_", "", 1)
+        platform += "_posts"
     elif account.startswith("stories_"):
         account = account.replace("stories_", "", 1)
+        platform += "_stories"
 
     sent_posts = utils.load_sent_posts()
 
@@ -854,6 +857,31 @@ def view_post_callback(call):
                             or f.endswith(".mp4")
                         )
                     ]
+                else:
+                    alt_accounts = [
+                        account.replace(".", "_"),
+                        account.replace("_", "."),
+                        f"stories_{account}",
+                    ]
+
+                    for alt_account in alt_accounts:
+                        alt_dir = os.path.join(
+                            INSTAGRAM_STORIES_DIR, alt_account, post_id
+                        )
+                        if os.path.exists(alt_dir):
+                            media_paths = [
+                                os.path.join(alt_dir, f)
+                                for f in os.listdir(alt_dir)
+                                if os.path.isfile(os.path.join(alt_dir, f))
+                                and (
+                                    f.endswith(".jpg")
+                                    or f.endswith(".jpeg")
+                                    or f.endswith(".png")
+                                    or f.endswith(".mp4")
+                                )
+                            ]
+                            if media_paths:
+                                break
 
             elif platform == "bilibili":
                 post_dir = os.path.join(BILIBILI_MEDIA_DIR, account, post_id)
@@ -916,7 +944,7 @@ def view_post_callback(call):
     markup.add(
         types.InlineKeyboardButton(
             "Back to list",
-            callback_data=f"history_select_account_history_{platform}_{account}",
+            callback_data=f"history_select_account_{platform}_{account}",
         )
     )
 
