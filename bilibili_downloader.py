@@ -13,6 +13,7 @@ import utils
 load_dotenv()
 
 MEDIA_DIR = utils.MEDIA_DIR
+BILIBILI_MEDIA_DIR = os.path.join(MEDIA_DIR, "bilibili")
 bot = utils.bot
 
 credential = Credential(
@@ -76,10 +77,20 @@ async def download_bilibili_video(video_url):
             print("Could not get video info, aborting download")
             return None
         bv_id = info["id"]
+        author = info["author"]
+        author_sanitized = author.replace(" ", "_")
 
-        bili_media_dir = utils.get_user_media_dir("bilibili", info["author"])
-        media_filename = utils.generate_media_filename("bilibili", bv_id, ".mp4")
-        video_path = os.path.join(bili_media_dir, media_filename)
+        # Create directory structure similar to Instagram: media/bilibili/account_name/video_id/
+        account_dir = os.path.join(BILIBILI_MEDIA_DIR, author_sanitized)
+        video_dir = os.path.join(account_dir, bv_id)
+
+        if not os.path.exists(account_dir):
+            os.makedirs(account_dir)
+        if not os.path.exists(video_dir):
+            os.makedirs(video_dir)
+
+        # Set video path using the new directory structure
+        video_path = os.path.join(video_dir, f"{bv_id}.mp4")
 
         if os.path.exists(video_path):
             print(f"Video already downloaded: {video_path}")
@@ -103,9 +114,9 @@ async def download_bilibili_video(video_url):
                     with YoutubeDL(ydl_opts) as ydl:
                         ydl.download([f"https://www.bilibili.com/video/{bv_id}"])
 
-                    utils.register_account("bilibili", info["author"])
+                    utils.register_account("bilibili", author_sanitized)
                     utils.save_media_mapping(
-                        f"bilibili_{info['author']}", bv_id, [video_path]
+                        f"bilibili_{author_sanitized}", bv_id, [video_path]
                     )
                     return {"path": video_path, "info": info}
                 else:
@@ -126,9 +137,9 @@ async def download_bilibili_video(video_url):
                 "Referer": f"https://www.bilibili.com/video/{bv_id}",
             }
 
-            # Create temporary file paths in the new directory structure
-            temp_video_path = os.path.join(bili_media_dir, f"temp_video_{bv_id}.m4s")
-            temp_audio_path = os.path.join(bili_media_dir, f"temp_audio_{bv_id}.m4s")
+            # Updated temp file paths to use the new directory structure
+            temp_video_path = os.path.join(video_dir, f"temp_video_{bv_id}.m4s")
+            temp_audio_path = os.path.join(video_dir, f"temp_audio_{bv_id}.m4s")
 
             print("Downloading video stream...")
             with requests.get(video_url_sel, headers=headers, stream=True) as r:
@@ -196,10 +207,10 @@ async def download_bilibili_video(video_url):
                 os.remove(temp_audio_path)
 
         # Register the account
-        utils.register_account("bilibili", info["author"])
+        utils.register_account("bilibili", author_sanitized)
 
         # Save media mapping with author name
-        utils.save_media_mapping(f"bilibili_{info['author']}", bv_id, [video_path])
+        utils.save_media_mapping(f"bilibili_{author_sanitized}", bv_id, [video_path])
         return {"path": video_path, "info": info}
     except Exception as e:
         print(f"Error downloading video: {e}")

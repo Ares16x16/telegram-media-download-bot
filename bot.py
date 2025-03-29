@@ -65,7 +65,7 @@ def platform_callback(call):
 
 @bot.message_handler(
     func=lambda message: message.from_user.id in user_states
-    and user_states[message.from_user.id]["step"] == "wait_username"
+    and user_states[message.from_user.id].get("step") == "wait_username"
 )
 def handle_username_input(message):
     user_id = message.from_user.id
@@ -349,13 +349,14 @@ def handle_fetch_nagi_ig(message):
         for story in insta_stories:
             if story.get("media_paths"):
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!",
+                    f"{story['content']}",
                     media_paths=story.get("media_paths"),
                     media_types=story.get("media_types"),
                 )
             else:
                 utils.send_to_telegram(
-                    f"{story['content']}\n\nView it soon!", media_url=story.get("url")
+                    f"{story['content']}",
+                    media_url=story.get("url"),
                 )
 
         bot.send_message(
@@ -893,6 +894,24 @@ def view_post_callback(call):
                         if os.path.isfile(os.path.join(post_dir, f))
                         and f.endswith(".mp4")
                     ]
+                # Add alternate account search, similar to Instagram
+                else:
+                    alt_accounts = [
+                        account.replace(".", "_"),
+                        account.replace("_", "."),
+                    ]
+
+                    for alt_account in alt_accounts:
+                        alt_dir = os.path.join(BILIBILI_MEDIA_DIR, alt_account, post_id)
+                        if os.path.exists(alt_dir):
+                            media_paths = [
+                                os.path.join(alt_dir, f)
+                                for f in os.listdir(alt_dir)
+                                if os.path.isfile(os.path.join(alt_dir, f))
+                                and f.endswith(".mp4")
+                            ]
+                            if media_paths:
+                                break
 
         except Exception as e:
             import traceback
@@ -994,11 +1013,11 @@ def handle_help(message):
 Available commands:
 /pick - Interactive menu to fetch posts (recommended)
 /fetch [x|instagram] <username> - Fetch posts by platform and username
-/fetch_nagi - Fetch all posts for Nagi
-/fetch_nagi_x - Fetch only X/Twitter posts for Nagi
-/fetch_nagi_ig - Fetch only Instagram posts for Nagi
+/fetch_nagi - Fetch all posts for Inoue Nagi
+/fetch_nagi_x - Fetch only X/Twitter posts for Inoue Nagi
+/fetch_nagi_ig - Fetch only Instagram posts for Inoue Nagi
 /bili <url> - Download and send Bilibili video
-/history - Browse previously fetched posts and media
+/history - Browse previously fetched posts' media
 /echo <message> - Echo back your message
 /help - Show this help message
 """
