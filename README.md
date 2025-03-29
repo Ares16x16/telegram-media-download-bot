@@ -3,6 +3,7 @@
 Commands:
 • /pick - Interactive menu to fetch posts  
 • /fetch [x|instagram] <username> - Fetch posts by platform and username  
+• /saku_news - Fetch sakurazaka46 news from official web
 • /fetch_nagi - Fetch all posts for Inoue Nagi  
 • /fetch_nagi_x - Fetch only X/Twitter posts from Inoue Nagi  
 • /fetch_nagi_ig - Fetch only Instagram posts from Inoue Nagi  
@@ -35,5 +36,8 @@ Use Telegram commands in a chat with the bot. Examples:
 • /fetch x <username> - Fetch from X/Twitter  
 • /fetch instagram <username> - Fetch from Instagram  
 • /help - List available commands  
+
+### Notes
+- Now the bot is set to automatically fetch media from Inoue Nagi's X & Instagram, you can comment it out at the bottom of `bot.py` if you don't want it to run.
 
 
