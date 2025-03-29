@@ -540,11 +540,11 @@ def history_select_account_callback(call):
         platform_type = "twitter"
         post_list_key = "x_posts"
         platform_key = f"twitter_{account}"
-    elif platform in ["instagram_posts", "instagram/posts", "instagram_post"]:
+    elif platform == "instagram_posts":
         platform_type = "instagram_posts"
         post_list_key = "instagram_posts"
         platform_key = f"instagram_post_{account}"
-    elif platform in ["instagram_stories", "instagram/stories", "instagram_story"]:
+    elif platform == "instagram_stories":
         platform_type = "instagram_stories"
         post_list_key = "instagram_stories"
         platform_key = f"instagram_story_{account}"
@@ -662,7 +662,9 @@ def history_navigation_callback(call):
                     id=call.id,
                     from_user=call.from_user,
                     message=call.message,
+                    chat_instance=call.message.chat.id,
                     data=f"history_select_platform_{platform}",
+                    json_string="{}",
                 )
             )
 
