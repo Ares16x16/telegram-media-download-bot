@@ -17,6 +17,7 @@ import utils
 import fetchers
 import bilibili_downloader
 import youtube_downloader
+import sakurazaka_news
 
 BOT_TOKEN = utils.BOT_TOKEN
 if not BOT_TOKEN or BOT_TOKEN.strip() == "":
@@ -1268,14 +1269,196 @@ Available commands:
 /auto_status - Check auto fetch status
 /auto_config - Configure auto fetch settings
 /echo <message> - Echo back your message
+/saku_news - Fetch Sakurazaka46 news by month
 /help - Show this help message
 """
     bot.send_message(message.chat.id, help_text)
 
 
+@bot.message_handler(commands=["saku_news"])
+def handle_saku_news(message):
+    """Step 1: Ask the user to pick a year."""
+    now = datetime.now()
+    start_year = 2020
+    markup = types.InlineKeyboardMarkup()
+    for year in range(start_year, now.year + 1):
+        callback_data = f"sakura_year_{year}"
+        markup.add(types.InlineKeyboardButton(str(year), callback_data=callback_data))
+    bot.send_message(
+        message.chat.id, "Choose a year to fetch news:", reply_markup=markup
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("sakura_year_"))
+def saku_year_callback(call):
+    bot.answer_callback_query(call.id)
+    parts = call.data.split("_", 2)
+    selected_year = int(parts[2])
+    now = datetime.now()
+
+    # For the current year, limit the months to the current month
+    max_month = now.month if (selected_year == now.year) else 12
+    markup = types.InlineKeyboardMarkup()
+    start_m = 10 if selected_year == 2020 else 1  # Start from October 2020
+    for month in range(start_m, max_month + 1):
+        callback_data = f"sakura_month_{selected_year}_{month}"
+        label = f"{selected_year}-{month:02d}"
+        markup.add(types.InlineKeyboardButton(label, callback_data=callback_data))
+    markup.add(types.InlineKeyboardButton("Back", callback_data="sakura_back_to_years"))
+    bot.edit_message_text(
+        f"Selected year: {selected_year}\nChoose a month:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "sakura_back_to_years")
+def saku_back_to_years_callback(call):
+    """Go back to the year selection screen."""
+    bot.answer_callback_query(call.id)
+    markup = types.InlineKeyboardMarkup()
+    now = datetime.now()
+    start_year = 2020
+    for y in range(start_year, now.year + 1):
+        callback_data = f"sakura_year_{y}"
+        markup.add(types.InlineKeyboardButton(str(y), callback_data=callback_data))
+    bot.edit_message_text(
+        "Choose a year to fetch news:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("sakura_month_"))
+def saku_month_callback(call):
+    parts = call.data.split("_")
+    if len(parts) < 3:
+        bot.send_message(call.message.chat.id, "Invalid callback data.")
+        return
+    # data format: sakura_month_YYYY_M
+    _, _, year_str, month_str = parts
+    yr, mo = int(year_str), int(month_str)
+
+    news_items = sakurazaka_news.fetch_monthly_news(yr, mo)
+    if not news_items:
+        bot.send_message(call.message.chat.id, "No news found for that month.")
+        return
+
+    user_states[call.from_user.id] = {
+        "saku_news": news_items,
+        "saku_news_page": 0,
+        "saku_year": yr,
+        "saku_month": mo,
+    }
+    show_saku_news_page(
+        call.from_user.id, call.message.chat.id, call.message.message_id
+    )
+
+
+@bot.callback_query_handler(
+    func=lambda call: call.data in ["saku_news_prev_page", "saku_news_next_page"]
+)
+def saku_news_page_nav_callback(call):
+    bot.answer_callback_query(call.id)
+    uid = call.from_user.id
+    if uid not in user_states or "saku_news" not in user_states[uid]:
+        return
+    if call.data == "saku_news_prev_page":
+        user_states[uid]["saku_news_page"] -= 1
+    else:
+        user_states[uid]["saku_news_page"] += 1
+    show_saku_news_page(uid, call.message.chat.id, call.message.message_id)
+
+
+def show_saku_news_page(user_id, chat_id, message_id, items_per_page=10):
+    if user_id not in user_states:
+        return
+    all_news = user_states[user_id].get("saku_news", [])
+    current_page = user_states[user_id].get("saku_news_page", 0)
+    yr = user_states[user_id].get("saku_year")
+    mo = user_states[user_id].get("saku_month")
+    start_idx = current_page * items_per_page
+    end_idx = min(start_idx + items_per_page, len(all_news))
+    page_news = all_news[start_idx:end_idx]
+
+    markup = types.InlineKeyboardMarkup()
+    for idx, item in enumerate(page_news):
+        real_idx = start_idx + idx
+        callback_data = f"sakura_detail_{real_idx}"
+        markup.add(
+            types.InlineKeyboardButton(item["title"], callback_data=callback_data)
+        )
+
+    nav_row = []
+    if current_page > 0:
+        nav_row.append(
+            types.InlineKeyboardButton("Previous", callback_data="saku_news_prev_page")
+        )
+    if end_idx < len(all_news):
+        nav_row.append(
+            types.InlineKeyboardButton("Next", callback_data="saku_news_next_page")
+        )
+    if nav_row:
+        markup.row(*nav_row)
+
+    markup.add(types.InlineKeyboardButton("Back", callback_data="sakura_back_to_years"))
+    total_pages = (len(all_news) + items_per_page - 1) // items_per_page
+    text = f"Sakurazaka46 {yr}-{mo:02d} news (Page {current_page+1}/{total_pages}):"
+    bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("sakura_detail_"))
+def saku_detail_callback(call):
+    bot.answer_callback_query(call.id)
+    idx = int(call.data.split("_")[2])
+    if (
+        call.from_user.id in user_states
+        and "saku_news" in user_states[call.from_user.id]
+    ):
+        news_items = user_states[call.from_user.id]["saku_news"]
+        if 0 <= idx < len(news_items):
+            bot.send_message(call.message.chat.id, "Fetching details, please wait...")
+            news_item = news_items[idx]
+            detail_html = sakurazaka_news.fetch_news_detail(news_item["url"])
+
+            if detail_html == "No detail found." or not detail_html:
+                bot.send_message(
+                    call.message.chat.id,
+                    f"No details available for this news item.\n\nTitle: {news_item['title']}\nDate: {news_item['date']}\n\nYou can visit the original article: [View on Web]({news_item['url']})",
+                    parse_mode="Markdown",
+                    disable_web_page_preview=False,
+                )
+            else:
+                # Add news type if available
+                news_type = f"🏷️ {news_item['type']}\n" if news_item.get("type") else ""
+                # Add a divider and link to the original article
+                footer = f"\n\n---\n🌐 [View original article]({news_item['url']})"
+                message = f"{news_type}{detail_html}{footer}"
+
+                try:
+                    bot.send_message(
+                        call.message.chat.id,
+                        message,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=False,
+                    )
+                except Exception as e:
+                    # If Markdown parsing fails, send without formatting
+                    print(f"Error sending with Markdown: {e}")
+                    bot.send_message(
+                        call.message.chat.id,
+                        f"Error with formatted message. Here's the plain text:\n\n{detail_html}\n\nOriginal article: {news_item['url']}",
+                        disable_web_page_preview=False,
+                    )
+    else:
+        bot.send_message(call.message.chat.id, "No news items found. Please try again.")
+
+
 if __name__ == "__main__":
-    print("Combined bot started. Listening for commands...")
-    # Try to start auto-fetch by default
+    print("Bot started. Listening for commands...")
+    # start auto-fetch by default
     try:
         if start_auto_fetch():
             print(
