@@ -1925,13 +1925,16 @@ def process_threads_url(message, url, parsed_url):
         )
 
         try:
-            success, result_message = media_from_link.download_and_send_threads_post(
-                message, url
+            bot.reply_to(
+                message, f"Threads is not supported yet. Please try again later."
             )
-            if not success:
-                bot.reply_to(
-                    message, f"Failed to download Threads post: {result_message}"
-                )
+            # success, result_message = media_from_link.download_and_send_threads_post(
+            #    message, url
+            # )
+            # if not success:
+            #    bot.reply_to(
+            #        message, f"Failed to download Threads post: {result_message}"
+            #    )
         except Exception as e:
             bot.reply_to(message, f"Error processing Threads post: {e}")
             traceback.print_exc()
@@ -1955,14 +1958,13 @@ def handle_url_message(message):
         if "instagram.com" in domain:
             process_instagram_url(message, url, parsed_url)
 
-        # Twitter/X 
+        # Twitter/X
         elif "twitter.com" in domain or "x.com" in domain:
             process_x_url(message, url, parsed_url)
 
-        # Threads 
+        # Threads
         elif "threads.net" in domain:
             process_threads_url(message, url, parsed_url)
-
 
 
 if __name__ == "__main__":
