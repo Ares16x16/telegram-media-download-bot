@@ -58,9 +58,18 @@ def import_session_cookies_from_firefox(sessionfile):
 
 def attempt_instagram_login(max_retries=1):
     global INSTAGRAM_AVAILABLE
+
+    # Try Firefox cookies first as it's more likely to work without triggering security checkpoints
+    print("Trying to use Firefox cookies for Instagram login first...")
+    session_filename = os.path.join(os.path.dirname(__file__), "instagram_session")
+    if import_session_cookies_from_firefox(session_filename):
+        print("Successfully logged in using Firefox cookies")
+        return
+
+    # If cookies failed, try regular methods
     for attempt in range(max_retries):
         try:
-            L.load_session_from_file(INSTAGRAM_USERNAME, "instagram_session")
+            L.load_session_from_file(INSTAGRAM_USERNAME, session_filename)
             print("Successfully loaded Instagram session from file")
             return
         except FileNotFoundError:
@@ -71,10 +80,26 @@ def attempt_instagram_login(max_retries=1):
                     backoff = 1
                     print(f"Sleeping {backoff} seconds before retry...")
                     time.sleep(backoff)
-                L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
-                print("Successfully logged into Instagram")
-                L.save_session_to_file("instagram_session")
-                return
+
+                try:
+                    L.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+                    print("Successfully logged into Instagram")
+                    L.save_session_to_file(session_filename)
+                    return
+                except instaloader.exceptions.LoginException as e:
+                    print(f"Instagram login error: {e}")
+                    print("\nINSTRUCTIONS TO FIX:")
+                    print("1. Open Instagram in firefox and log in")
+                    print("2. Complete any security challenges Instagram presents")
+                    print(
+                        "3. After successfully logging in to the browser, run this script again"
+                    )
+                    print(
+                        "4. If the issue persists, try using the Firefox cookie method\n"
+                    )
+                    INSTAGRAM_AVAILABLE = False
+                    return
+
             except instaloader.exceptions.BadCredentialsException:
                 print("Error: Invalid Instagram credentials")
                 INSTAGRAM_AVAILABLE = False
@@ -84,10 +109,8 @@ def attempt_instagram_login(max_retries=1):
         except instaloader.exceptions.ConnectionException as e:
             print(f"Connection error: {e}")
 
-    print("All regular login attempts to Instagram failed. Trying Firefox cookies.")
-    if not import_session_cookies_from_firefox("instagram_session"):
-        print("Cookie import also failed. Instagram features will be disabled.")
-        INSTAGRAM_AVAILABLE = False
+    print("All Instagram login methods failed. Instagram features will be disabled.")
+    INSTAGRAM_AVAILABLE = False
 
 
 load_dotenv()
@@ -553,7 +576,154 @@ def fetch_instagram_posts(username):
         return []
 
 
-def fetch_instagram_stories(username):
+def fetch_instagram_post_by_shortcode(shortcode):
+    """
+    Fetch a single Instagram post by its shortcode/ID without downloading all posts from that account.
+
+    Args:
+        shortcode: The Instagram post shortcode/ID (from URL)
+
+    Returns:
+        Dictionary with post information or None if not found
+    """
+    if not INSTAGRAM_AVAILABLE:
+        print("INSTAGRAM_AVAILABLE is False, skipping Instagram post fetch.")
+        return None
+
+    try:
+        print(f"Fetching single Instagram post with shortcode: {shortcode}")
+
+        # Try to directly load the post using instaloader
+        try:
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+
+            # Create a simplified post object
+            caption = post.caption if post.caption else "No caption"
+
+            # Get username
+            username = post.owner_username
+            utils.register_account("instagram", username)
+
+            # Set up directories
+            base_posts_dir = os.path.join(MEDIA_DIR, "instagram", "posts")
+            user_media_dir = os.path.join(base_posts_dir, username)
+            post_dir = os.path.join(user_media_dir, str(post.shortcode))
+            os.makedirs(post_dir, exist_ok=True)
+
+            # Determine if it's video or image
+            is_video = post.is_video
+            media_url = post.video_url if is_video else post.url
+
+            # Download the media
+            ext = ".mp4" if is_video else ".jpg"
+            media_filename = utils.generate_media_filename(
+                "instagram", post.shortcode, ext
+            )
+            media_path = os.path.join(post_dir, media_filename)
+
+            if not os.path.exists(media_path):
+                success = download_media(media_url, media_path)
+            else:
+                success = True
+
+            # Create the post object to return
+            post_data = {
+                "id": post.shortcode,
+                "username": username,
+                "content": f"Instagram post from @{username}:\n\n{caption}",
+                "url": f"https://www.instagram.com/p/{post.shortcode}/",
+            }
+
+            if success and os.path.exists(media_path):
+                post_data["media_paths"] = [media_path]
+                post_data["media_types"] = ["video" if is_video else "photo"]
+                utils.save_media_mapping(
+                    f"instagram_post_{username}", post.shortcode, [media_path]
+                )
+                print(
+                    f"Successfully downloaded media for Instagram post {post.shortcode}"
+                )
+            else:
+                post_data["media_url"] = media_url
+                print(f"Could not download media, using direct URL")
+
+            # Track this post in sent_posts
+            sent_posts = utils.load_sent_posts()
+            if str(post.shortcode) not in sent_posts["instagram_posts"]:
+                sent_posts["instagram_posts"].append(str(post.shortcode))
+                utils.save_sent_posts(sent_posts)
+
+            return post_data
+
+        except Exception as e:
+            print(f"Error fetching post by shortcode ({shortcode}): {e}")
+            traceback.print_exc()
+            # Continue to fallback methods
+
+        # Fallback: Try a simple web request to extract info
+        try:
+            url = f"https://www.instagram.com/p/{shortcode}/"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                # Try to find JSON data in the page
+                json_data_match = re.search(
+                    r'<script type="application/ld\+json">(.*?)</script>',
+                    response.text,
+                    re.DOTALL,
+                )
+                if json_data_match:
+                    try:
+                        data = json.loads(json_data_match.group(1))
+                        username = (
+                            data.get("author", {})
+                            .get("identifier", {})
+                            .get("value", "instagram")
+                        )
+
+                        # Find media URL
+                        if "video" in data:
+                            media_url = data.get("video", {}).get("contentUrl")
+                            is_video = True
+                        else:
+                            media_url = data.get("image")
+                            is_video = False
+
+                        caption = data.get("caption", "No caption available")
+
+                        return {
+                            "id": shortcode,
+                            "username": username,
+                            "content": f"Instagram post from @{username}:\n\n{caption}",
+                            "url": url,
+                            "media_url": media_url,
+                        }
+                    except json.JSONDecodeError:
+                        print("Could not parse JSON data from Instagram post page")
+            else:
+                print(
+                    f"Failed to fetch Instagram post page: HTTP {response.status_code}"
+                )
+
+        except Exception as e:
+            print(f"Error in fallback fetch method: {e}")
+
+        return None
+
+    except Exception as e:
+        print(f"Error in fetch_instagram_post_by_shortcode: {e}")
+        traceback.print_exc()
+        return None
+
+
+def fetch_instagram_stories(username, skip_tracking=False):
+    """
+    Fetch Instagram stories for a specific username.
+    When skip_tracking=True, it won't save stories to the JSON tracking file.
+    """
     if not INSTAGRAM_AVAILABLE:
         print("INSTAGRAM_AVAILABLE is False, skipping Instagram stories.")
         return []
@@ -625,6 +795,9 @@ def fetch_instagram_stories(username):
             print("Instagram login required to fetch stories")
         except Exception as e:
             print(f"Error processing stories: {e}")
+
+        if skip_tracking:
+            return new_stories
 
         utils.save_sent_posts(sent_posts)
         return new_stories
