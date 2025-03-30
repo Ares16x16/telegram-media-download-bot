@@ -1,11 +1,12 @@
 # Telegram Media Download Bot
 
-Commands:
+Commands:  
+
 • /pick - Interactive menu to fetch posts  
 • /fetch [x|instagram] <username> - Fetch posts by platform and username  
-• /nogi_news - Fetch Nogizaka46 news from official web
-• /saku_news - Fetch Sakurazaka46 news from official web
-• /hinata_news - Fetch Hinatazaka46 news from official web
+• /nogi_news - Fetch Nogizaka46 news from official web  
+• /saku_news - Fetch Sakurazaka46 news from official web  
+• /hinata_news - Fetch Hinatazaka46 news from official web  
 • /fetch_nagi - Fetch all posts for Inoue Nagi  
 • /fetch_nagi_x - Fetch only X/Twitter posts from Inoue Nagi  
 • /fetch_nagi_ig - Fetch only Instagram posts from Inoue Nagi  
@@ -40,6 +41,7 @@ Use Telegram commands in a chat with the bot. Examples:
 • /help - List available commands  
 
 ### Notes
-- Now the bot is set to automatically fetch media from Inoue Nagi's X & Instagram, you can comment it out at the bottom of `bot.py` if you don't want it to run.
+- You can set the auto fetcher for specific accounts
+- Now the bot depends on the `sent_posts.json` to view the history of the posts sent to the user, there might be some bugs for retrieving the history.
 
 
