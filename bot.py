@@ -1858,33 +1858,6 @@ def extract_urls(text):
     return url_pattern.findall(text)
 
 
-@bot.message_handler(
-    func=lambda message: message.content_type == "text" and is_url_in_text(message.text)
-)
-def handle_url_message(message):
-    """Handle messages containing URLs by trying to extract and process media"""
-    urls = extract_urls(message.text)
-
-    if not urls:
-        return
-
-    for url in urls:
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc.lower()
-
-        # Instagram processing
-        if "instagram.com" in domain:
-            process_instagram_url(message, url, parsed_url)
-
-        # Add more URL processors here in the future
-        # elif 'twitter.com' in domain or 'x.com' in domain:
-        #     process_twitter_url(message, url, parsed_url)
-        # elif 'youtube.com' in domain or 'youtu.be' in domain:
-        #     process_youtube_url(message, url)
-        # elif 'bilibili.com' in domain:
-        #     process_bilibili_url(message, url)
-
-
 def process_instagram_url(message, url, parsed_url):
     """Process Instagram URLs including posts and stories"""
     path = parsed_url.path.strip("/")
@@ -1924,10 +1897,79 @@ def process_instagram_url(message, url, parsed_url):
             traceback.print_exc()
 
 
+def process_x_url(message, url, parsed_url):
+    """Process X/Twitter URLs"""
+    if "/status/" in parsed_url.path:
+        bot.reply_to(
+            message,
+            "I found an X (Twitter) post link. Attempting to download that post...",
+        )
+
+        try:
+            success, result_message = media_from_link.download_and_send_x_post(
+                message, url
+            )
+            if not success:
+                bot.reply_to(message, f"Failed to download X post: {result_message}")
+        except Exception as e:
+            bot.reply_to(message, f"Error processing X post: {e}")
+            traceback.print_exc()
+
+
+def process_threads_url(message, url, parsed_url):
+    """Process Threads.net URLs"""
+    if "/post/" in parsed_url.path:
+        bot.reply_to(
+            message,
+            "I found a Threads post link. Attempting to download that post...",
+        )
+
+        try:
+            success, result_message = media_from_link.download_and_send_threads_post(
+                message, url
+            )
+            if not success:
+                bot.reply_to(
+                    message, f"Failed to download Threads post: {result_message}"
+                )
+        except Exception as e:
+            bot.reply_to(message, f"Error processing Threads post: {e}")
+            traceback.print_exc()
+
+
+@bot.message_handler(
+    func=lambda message: message.content_type == "text" and is_url_in_text(message.text)
+)
+def handle_url_message(message):
+    """Handle messages containing URLs by trying to extract and process media"""
+    urls = extract_urls(message.text)
+
+    if not urls:
+        return
+
+    for url in urls:
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()
+
+        # Instagram
+        if "instagram.com" in domain:
+            process_instagram_url(message, url, parsed_url)
+
+        # Twitter/X 
+        elif "twitter.com" in domain or "x.com" in domain:
+            process_x_url(message, url, parsed_url)
+
+        # Threads 
+        elif "threads.net" in domain:
+            process_threads_url(message, url, parsed_url)
+
+
+
 if __name__ == "__main__":
     print("Bot started. Listening for commands...")
     # start auto-fetch by default
     try:
+        raise Exception("Auto fetch not started by default")
         if start_auto_fetch():
             print(
                 f"Auto fetch started. Will check for new posts every {auto_fetch_interval//60} minutes."

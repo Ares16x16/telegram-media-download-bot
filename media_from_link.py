@@ -7,6 +7,7 @@ import shutil
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import utils
+import bot
 import fetchers
 from telebot import TeleBot
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ from instaloader.exceptions import (
 
 # Get bot instance for direct message sending
 BOT_TOKEN = utils.BOT_TOKEN
-bot = TeleBot(BOT_TOKEN)
+tgbot = TeleBot(BOT_TOKEN)
 
 
 def extract_instagram_story_info(url):
@@ -190,7 +191,7 @@ def download_and_send_specific_instagram_story(message, url):
         if not username or not story_id:
             return False, "Could not extract username and story ID from URL."
 
-        bot.reply_to(message, f"Looking for story from @{username}...")
+        tgbot.reply_to(message, f"Looking for story from @{username}...")
 
         story = fetch_specific_instagram_story(username, story_id)
 
@@ -321,27 +322,22 @@ def download_and_send_instagram_post(message, url):
         if not post_id:
             return False, "Could not extract post ID from URL."
 
-        post = fetch_specific_instagram_post(post_id)
+        tgbot.reply_to(message, f"Looking for Instagram post {post_id}...")
+
+        # Skip local history search and directly use fetch_instagram_post_by_shortcode
+        # This avoids attempting to download from all previous accounts
+        post = fetchers.fetch_instagram_post_by_shortcode(post_id)
 
         if not post:
-            try:
-                username = extract_username_from_url(url)
-                if username:
-                    posts = fetchers.fetch_instagram_posts(username)
-                    for p in posts:
-                        if post_id in p.get("url", ""):
-                            post = p
-                            break
-            except Exception as e:
-                print(f"Error in fallback fetch: {e}")
+            return False, f"Could not find Instagram post {post_id}"
 
-            if not post:
-                return False, f"Could not find post {post_id}"
-
+        # Get username from post data or extract from URL
         username = post.get("username", extract_username_from_url(url) or "instagram")
 
+        # Build the caption
         caption = f"Instagram Post\n\n{post.get('content', '')}\n\n{post.get('url', f'https://www.instagram.com/p/{post_id}/')}"
 
+        # Send to Telegram
         media_paths = []
         if post.get("media_paths"):
             utils.send_to_telegram(
@@ -362,6 +358,7 @@ def download_and_send_instagram_post(message, url):
         else:
             return False, "Found the post but it doesn't contain media."
 
+        # Clean up after sending
         cleanup_instagram_media(username, post_id, "post", media_paths)
 
         return result
@@ -402,11 +399,11 @@ def cleanup_instagram_media(username, content_id, content_type, media_paths):
         try:
             if content_type == "post":
                 content_dir = os.path.join(
-                    utils.INSTAGRAM_POSTS_DIR, username, content_id
+                    bot.INSTAGRAM_POSTS_DIR, username, content_id
                 )
             else:  # story
                 content_dir = os.path.join(
-                    utils.INSTAGRAM_STORIES_DIR, username, content_id
+                    bot.INSTAGRAM_STORIES_DIR, username, content_id
                 )
 
             if os.path.exists(content_dir) and not os.listdir(content_dir):
@@ -450,4 +447,231 @@ def cleanup_instagram_media(username, content_id, content_type, media_paths):
 
     except Exception as e:
         print(f"Error during cleanup: {e}")
+        traceback.print_exc()
+
+
+def extract_x_post_info(url):
+    """
+    Extract post ID from an X/Twitter URL.
+    Returns post_id or None if extraction fails.
+
+    Example URLs:
+    - https://twitter.com/username/status/12345678901234567
+    - https://x.com/username/status/12345678901234567
+    """
+    parsed_url = urlparse(url)
+    path = parsed_url.path.strip("/")
+
+    # Match the path pattern for Twitter/X posts
+    pattern = r"(?:status|statuses)/(\d+)"
+    match = re.search(pattern, path)
+
+    if match:
+        post_id = match.group(1)
+        return post_id
+
+    return None
+
+
+def extract_x_username_from_url(url):
+    """Extract username from an X/Twitter URL if possible"""
+    try:
+        parsed_url = urlparse(url)
+        path = parsed_url.path.strip("/")
+        path_parts = path.split("/")
+
+        # URL format is typically: twitter.com/username/status/id
+        if len(path_parts) >= 3 and path_parts[1] in ["status", "statuses"]:
+            return path_parts[0]
+    except Exception:
+        pass
+    return None
+
+
+def fetch_specific_x_post(post_id, username=None):
+    """
+    Fetch a specific X post based on post ID.
+    Returns post data dict if found, None otherwise.
+    """
+    try:
+        # Check if we've already downloaded this post
+        sent_posts = utils.load_sent_posts()
+        x_accounts = utils.get_accounts_by_platform("twitter")
+
+        # First, try the specific username if provided
+        if username:
+            key = f"twitter_{username}_{post_id}"
+            if key in sent_posts.get("media_mapping", {}):
+                media_paths = sent_posts["media_mapping"][key]
+                valid_paths = [p for p in media_paths if os.path.exists(p)]
+                if valid_paths:
+                    return {
+                        "id": post_id,
+                        "username": username,
+                        "media_paths": valid_paths,
+                        "media_types": [
+                            "photo" if not path.endswith(".mp4") else "video"
+                            for path in valid_paths
+                        ],
+                        "content": f"X post from @{username}",
+                        "url": f"https://twitter.com/{username}/status/{post_id}",
+                    }
+
+        # Try all known accounts
+        for account in x_accounts:
+            key = f"twitter_{account}_{post_id}"
+            if key in sent_posts.get("media_mapping", {}):
+                media_paths = sent_posts["media_mapping"][key]
+                valid_paths = [p for p in media_paths if os.path.exists(p)]
+                if valid_paths:
+                    return {
+                        "id": post_id,
+                        "username": account,
+                        "media_paths": valid_paths,
+                        "media_types": [
+                            "photo" if not path.endswith(".mp4") else "video"
+                            for path in valid_paths
+                        ],
+                        "content": f"X post from @{account}",
+                        "url": f"https://twitter.com/{account}/status/{post_id}",
+                    }
+
+        # Not found in our records, try to fetch it if username is provided
+        if username:
+            try:
+                # This will attempt to fetch recent posts from the user,
+                # which may include the one we're looking for
+                new_posts = fetchers.fetch_x_posts(username)
+
+                # Check if our post_id is now in the fetched posts
+                sent_posts = utils.load_sent_posts()
+                key = f"twitter_{username}_{post_id}"
+                if key in sent_posts.get("media_mapping", {}):
+                    media_paths = sent_posts["media_mapping"][key]
+                    valid_paths = [p for p in media_paths if os.path.exists(p)]
+                    if valid_paths:
+                        return {
+                            "id": post_id,
+                            "username": username,
+                            "media_paths": valid_paths,
+                            "media_types": [
+                                "photo" if not path.endswith(".mp4") else "video"
+                                for path in valid_paths
+                            ],
+                            "content": f"X post from @{username}",
+                            "url": f"https://twitter.com/{username}/status/{post_id}",
+                        }
+
+                # Alternative: search through the returned new posts
+                for post in new_posts:
+                    if post.get("id") == post_id:
+                        return post
+            except Exception as e:
+                print(f"Error fetching posts for {username}: {e}")
+
+        # Post not found
+        return None
+
+    except Exception as e:
+        print(f"Error fetching specific X post: {e}")
+        traceback.print_exc()
+        return None
+
+
+def download_and_send_x_post(message, url):
+    """
+    Download and send the specific X post from the provided URL.
+    Then clean up the files.
+    """
+    try:
+        post_id = extract_x_post_info(url)
+
+        if not post_id:
+            return False, "Could not extract post ID from URL."
+
+        # Try to extract username from URL
+        username = extract_x_username_from_url(url)
+
+        tgbot.reply_to(
+            message,
+            f"Looking for X post {post_id}{' from @'+username if username else ''}...",
+        )
+
+        # Try to find or fetch the post
+        post = fetch_specific_x_post(post_id, username)
+
+        if not post:
+            return (
+                False,
+                f"Could not find X post {post_id}. The post may be private, deleted, or not contain media.",
+            )
+
+        # Build the caption
+        caption = f"X Post from @{post.get('username', username or 'Twitter user')}\n\n{post.get('content', '')}\n\n{post.get('url', f'https://twitter.com/status/{post_id}')}"
+
+        # Send to Telegram
+        media_paths = []
+        if post.get("media_paths"):
+            utils.send_to_telegram(
+                caption,
+                media_paths=post.get("media_paths"),
+                media_types=post.get("media_types"),
+                chat_id=message.chat.id,
+            )
+            media_paths = post.get("media_paths", [])
+            result = True, f"Downloaded X post {post_id}"
+        else:
+            return False, "Found the post but it doesn't contain media."
+
+        # Clean up after sending
+        post_username = post.get("username", username)
+        if post_username:
+            cleanup_x_media(post_username, post_id, media_paths)
+
+        return result
+
+    except Exception as e:
+        error_msg = f"Error downloading X post: {e}"
+        print(error_msg)
+        traceback.print_exc()
+        return False, error_msg
+
+
+def cleanup_x_media(username, post_id, media_paths):
+    """Clean up downloaded X media files but keep records for tracking"""
+    try:
+        # Remove files
+        for path in media_paths:
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"Deleted file: {path}")
+
+        # Remove directory if empty
+        try:
+            content_dir = os.path.join(bot.TWITTER_MEDIA_DIR, username, post_id)
+            if os.path.exists(content_dir) and not os.listdir(content_dir):
+                os.rmdir(content_dir)
+                print(f"Removed empty directory: {content_dir}")
+
+                # Try to remove parent directory if empty
+                parent_dir = os.path.dirname(content_dir)
+                if os.path.exists(parent_dir) and not os.listdir(parent_dir):
+                    os.rmdir(parent_dir)
+                    print(f"Removed empty parent directory: {parent_dir}")
+        except Exception as e:
+            print(f"Error removing directories: {e}")
+
+        # Remove from media mapping in JSON
+        sent_posts = utils.load_sent_posts()
+        key = f"twitter_{username}_{post_id}"
+
+        if "media_mapping" in sent_posts and key in sent_posts["media_mapping"]:
+            sent_posts["media_mapping"].pop(key, None)
+            utils.save_sent_posts(sent_posts)
+            print(f"Removed media mapping for {key}")
+
+        # Note: We're keeping the post ID in x_posts list to avoid re-downloading via auto-fetch
+
+    except Exception as e:
+        print(f"Error during X media cleanup: {e}")
         traceback.print_exc()
